@@ -16,6 +16,7 @@ export type Priority =
   | "family"
   | "comfort"
   | "performance"
+  | "youth"
   | "resale"
   | "city"
   | "longTrip"
@@ -61,6 +62,8 @@ export interface Car {
 export interface RecommendationRequest {
   minPrice: number;
   maxPrice: number;
+  minBudget?: number;
+  maxBudget?: number;
   priorities: Priority[];
   bodyTypes: BodyType[];
   fuelTypes: FuelType[];
@@ -68,8 +71,31 @@ export interface RecommendationRequest {
   minSeats: number;
 }
 
+export interface RecommendedVehicle {
+  id: string;
+  make: string;
+  model: string;
+  trimLevel: string;
+  segment: string;
+  powerHp: number;
+  minYear: number;
+  maxYear: number;
+  minKm: number;
+  maxKm: number;
+  marketMinPrice: number;
+  marketMaxPrice: number;
+  avgAnnualCostTry: number;
+  conditionSummary: string;
+  imageUrl: string | null;
+  tags: string[];
+  whyListed: string[];
+  pros: string[];
+  cons: string[];
+  matchScore: number;
+}
+
 export interface RecommendedCar {
-  car: Car;
+  car: RecommendedVehicle;
   score: number;
   confidenceLabel: string;
   reasons: string[];
@@ -77,15 +103,8 @@ export interface RecommendedCar {
   matchedPriorities: string[];
 }
 
-export interface RecommendationSection {
-  id: RecommendationCategory;
-  title: string;
-  description: string;
-  recommendations: RecommendedCar[];
-}
-
 export interface RecommendationResponse {
-  sections: RecommendationSection[];
+  recommendations: RecommendedCar[];
   totalMatches: number;
   appliedFilters: RecommendationRequest;
 }

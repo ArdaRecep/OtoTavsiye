@@ -13,36 +13,57 @@ import {
   X,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import cars from "@/data/cars.json";
-import type { BodyType, Car, FuelType, Transmission } from "@/lib/types";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 
-const allCars = cars as Car[];
+export const dynamic = "force-dynamic";
 
-const carImages = {
-  electric:
-    "https://images.unsplash.com/photo-1619767886558-efdc259cde1a?auto=format&fit=crop&w=1600&q=80",
-  suv: "https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&w=1600&q=80",
-  sedan:
-    "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=1600&q=80",
-  hatchback:
-    "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1600&q=80",
-  crossover:
-    "https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=1600&q=80",
-  default:
-    "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1600&q=80",
+type VehicleProfileRow = {
+  id: string;
+  make: string;
+  model: string;
+  trim_level: string;
+  segment: string;
+  body_type: string;
+  fuel_type: string;
+  transmission: string;
+  min_seats: number;
+  power_hp: number;
+  min_year: number;
+  max_year: number;
+  min_km: number;
+  max_km: number;
+  market_min_price: number | string;
+  market_max_price: number | string;
+  avg_annual_cost_try: number | string;
+  condition_summary: string;
+  image_url: string | null;
+  tags: string[] | null;
+  why_listed: string[] | null;
+  pros: string[] | null;
+  cons: string[] | null;
+  safety_score: number | string;
+  efficiency_score: number | string;
+  family_score: number | string;
+  comfort_score: number | string;
+  performance_score: number | string;
+  youth_score: number | string;
+  resale_score: number | string;
+  city_score: number | string;
+  long_trip_score: number | string;
+  maintenance_score: number | string;
+  tech_score: number | string;
 };
 
 type PageProps = {
   params: Promise<{ id: string }>;
 };
 
-export function generateStaticParams() {
-  return allCars.map((car) => ({ id: car.id }));
-}
+const fallbackImage =
+  "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1600&q=80";
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const car = getCar(id);
+  const car = await getVehicleProfile(id);
 
   if (!car) {
     return {
@@ -52,17 +73,21 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   return {
     title: `${car.make} ${car.model} | Araç Detayı`,
-    description: `${car.trim} için fiyat, teknik özellikler, güçlü yanlar ve dikkat edilmesi gerekenler.`,
+    description: `${car.trim_level} için piyasa fiyatı, teknik özellikler ve güçlü/zayıf taraflar.`,
   };
 }
 
 export default async function CarDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const car = getCar(id);
+  const car = await getVehicleProfile(id);
 
   if (!car) notFound();
 
-  const heroImage = getCarImage(car);
+  const heroImage = car.image_url ?? fallbackImage;
+  const whyListed = car.why_listed ?? [];
+  const pros = car.pros ?? [];
+  const cons = car.cons ?? [];
+  const tags = car.tags ?? [];
 
   return (
     <main className="min-h-screen bg-[#f7f8f4] text-[#0d1511]">
@@ -85,14 +110,14 @@ export default async function CarDetailPage({ params }: PageProps) {
 
           <div className="max-w-3xl pb-6">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-100">
-              {car.year} / {car.segment} / {bodyTypeLabel(car.bodyType)}
+              {formatYearRange(car)} / {car.segment} / {car.body_type}
             </p>
             <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
               {car.make} {car.model}
             </h1>
-            <p className="mt-4 max-w-2xl text-lg leading-8 text-emerald-50/88">{car.trim}</p>
+            <p className="mt-4 max-w-2xl text-lg leading-8 text-emerald-50/88">{car.trim_level}</p>
             <div className="mt-6 flex flex-wrap gap-2">
-              {car.tags.map((tag) => (
+              {tags.map((tag) => (
                 <span key={tag} className="rounded-full border border-white/20 bg-white/12 px-3 py-1 text-sm">
                   {tag}
                 </span>
@@ -105,16 +130,17 @@ export default async function CarDetailPage({ params }: PageProps) {
       <div className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-10">
         <section className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <DetailMetric icon={<WalletCards className="h-5 w-5" />} label="Fiyat" value={formatMoney(car.priceTry)} />
-            <DetailMetric icon={<Fuel className="h-5 w-5" />} label="Yıllık gider" value={formatMoney(car.annualCostTry)} />
-            <DetailMetric icon={<Gauge className="h-5 w-5" />} label="Güç" value={`${car.powerHp} hp`} />
-            <DetailMetric icon={<ShieldCheck className="h-5 w-5" />} label="Güvenlik" value={`${car.safetyScore}/10`} />
+            <DetailMetric icon={<WalletCards className="h-5 w-5" />} label="Piyasa fiyatı" value={formatPriceRange(car)} />
+            <DetailMetric icon={<Fuel className="h-5 w-5" />} label="Yıllık gider" value={formatMoney(car.avg_annual_cost_try)} />
+            <DetailMetric icon={<Gauge className="h-5 w-5" />} label="Güç" value={`${car.power_hp} hp`} />
+            <DetailMetric icon={<ShieldCheck className="h-5 w-5" />} label="Güvenlik" value={`${formatScore(car.safety_score)}/10`} />
           </div>
 
           <div className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
             <h2 className="text-xl font-semibold">Neden listede?</h2>
+            <p className="mt-3 text-sm leading-6 text-neutral-600">{car.condition_summary}</p>
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
-              {car.highlights.map((highlight) => (
+              {(whyListed.length ? whyListed : pros).map((highlight) => (
                 <div key={highlight} className="flex gap-3 rounded-md bg-[#f3faf5] p-3 text-sm leading-6">
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#014636]" />
                   <span>{highlight}</span>
@@ -126,12 +152,13 @@ export default async function CarDetailPage({ params }: PageProps) {
           <div className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
             <h2 className="text-xl font-semibold">Puan profili</h2>
             <div className="mt-5 space-y-4">
-              <ScoreRow label="Güvenlik" value={car.safetyScore} />
-              <ScoreRow label="Ekonomi" value={car.efficiencyScore} />
-              <ScoreRow label="Aile" value={car.familyScore} />
-              <ScoreRow label="Konfor" value={car.comfortScore} />
-              <ScoreRow label="Performans" value={car.performanceScore} />
-              <ScoreRow label="Teknoloji" value={car.techScore} />
+              <ScoreRow label="Güvenlik" value={Number(car.safety_score)} />
+              <ScoreRow label="Ekonomi" value={Number(car.efficiency_score)} />
+              <ScoreRow label="Aile" value={Number(car.family_score)} />
+              <ScoreRow label="Konfor" value={Number(car.comfort_score)} />
+              <ScoreRow label="Performans" value={Number(car.performance_score)} />
+              <ScoreRow label="Genç" value={Number(car.youth_score)} />
+              <ScoreRow label="Teknoloji" value={Number(car.tech_score)} />
             </div>
           </div>
         </section>
@@ -140,12 +167,12 @@ export default async function CarDetailPage({ params }: PageProps) {
           <div className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
             <h2 className="text-xl font-semibold">Teknik özet</h2>
             <dl className="mt-4 space-y-3 text-sm">
-              <SpecRow label="Yakıt" value={fuelLabel(car.fuelType)} />
-              <SpecRow label="Şanzıman" value={transmissionLabel(car.transmission)} />
-              <SpecRow label="Koltuk" value={`${car.seats} kişi`} />
-              <SpecRow label="Gövde" value={bodyTypeLabel(car.bodyType)} />
-              <SpecRow label="İkinci el" value={`${car.resaleScore}/10`} />
-              <SpecRow label="Bakım" value={`${car.maintenanceScore}/10`} />
+              <SpecRow label="Yakıt" value={car.fuel_type} />
+              <SpecRow label="Şanzıman" value={car.transmission} />
+              <SpecRow label="Koltuk" value={`${car.min_seats}+ kişi`} />
+              <SpecRow label="Gövde" value={car.body_type} />
+              <SpecRow label="Model yılı" value={formatYearRange(car)} />
+              <SpecRow label="KM aralığı" value={formatKmRange(car)} />
             </dl>
           </div>
 
@@ -155,10 +182,10 @@ export default async function CarDetailPage({ params }: PageProps) {
               Güçlü taraflar
             </div>
             <ul className="mt-4 space-y-3 text-sm leading-6 text-neutral-700">
-              {car.highlights.slice(0, 3).map((highlight) => (
-                <li key={highlight} className="flex gap-2">
+              {pros.map((pro) => (
+                <li key={pro} className="flex gap-2">
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#014636]" />
-                  <span>{highlight}</span>
+                  <span>{pro}</span>
                 </li>
               ))}
             </ul>
@@ -170,10 +197,10 @@ export default async function CarDetailPage({ params }: PageProps) {
               Dikkat noktaları
             </div>
             <ul className="mt-4 space-y-3 text-sm leading-6 text-neutral-700">
-              {car.tradeoffs.map((tradeoff) => (
-                <li key={tradeoff} className="flex gap-2">
+              {cons.map((con) => (
+                <li key={con} className="flex gap-2">
                   <X className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" />
-                  <span>{tradeoff}</span>
+                  <span>{con}</span>
                 </li>
               ))}
             </ul>
@@ -184,8 +211,21 @@ export default async function CarDetailPage({ params }: PageProps) {
   );
 }
 
-function getCar(id: string) {
-  return allCars.find((car) => car.id === id);
+async function getVehicleProfile(id: string) {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("vehicle_market_profiles")
+    .select(
+      "id, make, model, trim_level, segment, body_type, fuel_type, transmission, min_seats, power_hp, min_year, max_year, min_km, max_km, market_min_price, market_max_price, avg_annual_cost_try, condition_summary, image_url, tags, why_listed, pros, cons, safety_score, efficiency_score, family_score, comfort_score, performance_score, youth_score, resale_score, city_score, long_trip_score, maintenance_score, tech_score",
+    )
+    .eq("id", id)
+    .maybeSingle<VehicleProfileRow>();
+
+  if (error) {
+    throw new Error(`Araç detayı alınamadı: ${error.message}`);
+  }
+
+  return data;
 }
 
 function DetailMetric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
@@ -221,53 +261,30 @@ function SpecRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function getCarImage(car: Car) {
-  if (car.fuelType === "electric") return carImages.electric;
-  if (car.bodyType === "suv") return carImages.suv;
-  if (car.bodyType === "crossover") return carImages.crossover;
-  if (car.bodyType === "sedan") return carImages.sedan;
-  if (car.bodyType === "hatchback") return carImages.hatchback;
-
-  return carImages.default;
-}
-
-function formatMoney(value: number) {
+function formatMoney(value: number | string) {
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
     currency: "TRY",
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(Number(value));
 }
 
-function fuelLabel(value: FuelType) {
-  const labels: Record<FuelType, string> = {
-    gasoline: "Benzin",
-    diesel: "Dizel",
-    hybrid: "Hibrit",
-    electric: "Elektrik",
-  };
-
-  return labels[value];
+function formatPriceRange(car: VehicleProfileRow) {
+  return `${formatMoney(car.market_min_price)} - ${formatMoney(car.market_max_price)}`;
 }
 
-function transmissionLabel(value: Transmission) {
-  const labels: Record<Transmission, string> = {
-    automatic: "Otomatik",
-    manual: "Manuel",
-  };
-
-  return labels[value];
+function formatYearRange(car: VehicleProfileRow) {
+  return car.min_year === car.max_year ? `${car.min_year}` : `${car.min_year}-${car.max_year}`;
 }
 
-function bodyTypeLabel(value: BodyType) {
-  const labels: Record<BodyType, string> = {
-    hatchback: "Hatchback",
-    sedan: "Sedan",
-    suv: "SUV",
-    crossover: "Crossover",
-    station: "Station",
-    mpv: "MPV",
-  };
+function formatKmRange(car: VehicleProfileRow) {
+  const formatter = new Intl.NumberFormat("tr-TR", {
+    maximumFractionDigits: 0,
+  });
 
-  return labels[value];
+  return `${formatter.format(car.min_km)} - ${formatter.format(car.max_km)} km`;
+}
+
+function formatScore(value: number | string) {
+  return Number(value).toFixed(1);
 }

@@ -33,22 +33,19 @@ import type {
 } from "react";
 import type {
   BodyType,
-  Car,
   FuelType,
   Priority,
   RecommendationRequest,
   RecommendationResponse,
-  RecommendationSection,
   RecommendedCar,
+  RecommendedVehicle,
   Transmission,
 } from "@/lib/types";
-import cars from "@/data/cars.json";
 
 const PRICE_MIN = 200000;
 const PRICE_MAX = 60000000;
 const SLIDER_EDGE_GAP_PERCENT = 7;
 const SLIDER_EXPANSION_DEAD_ZONE_PX = 5;
-const allCars = cars as Car[];
 
 type PriceDomain = {
   min: number;
@@ -68,6 +65,7 @@ const priorityOptions: { id: Priority; label: string }[] = [
   { id: "family", label: "Aile" },
   { id: "comfort", label: "Konfor" },
   { id: "performance", label: "Performans" },
+  { id: "youth", label: "Genç" },
   { id: "resale", label: "İkinci el" },
   { id: "city", label: "Şehir içi" },
   { id: "longTrip", label: "Uzun yol" },
@@ -75,8 +73,8 @@ const priorityOptions: { id: Priority; label: string }[] = [
   { id: "tech", label: "Teknoloji" },
 ];
 
-const featuredPriorities = priorityOptions.slice(0, 5);
-const extraPriorities = priorityOptions.slice(5);
+const featuredPriorities = priorityOptions.slice(0, 6);
+const extraPriorities = priorityOptions.slice(6);
 
 const bodyOptions: { id: BodyType; label: string }[] = [
   { id: "hatchback", label: "Hatchback" },
@@ -95,18 +93,18 @@ const fuelOptions: { id: FuelType; label: string }[] = [
 const initialPreferences: RecommendationRequest = {
   minPrice: PRICE_MIN,
   maxPrice: PRICE_MAX,
-  priorities: ["safety", "economy", "family", "comfort"],
+  priorities: [],
   bodyTypes: [],
   fuelTypes: [],
   transmission: "any",
-  minSeats: 5,
+  minSeats: 0,
 };
 
 const tabMeta: Record<ActiveTab, { title: string; description: string }> = {
   recommendations: {
     title: "Bütçene ve önceliklerine göre araç önerisi",
     description:
-      "Fiyat aralığını ve öncelik kriterlerini seç. Sistem JSON veri setini filtreleyip farklı başlıklarda açıklanabilir öneriler üretir.",
+      "Fiyat aralığını ve opsiyonel kriterlerini seç. Sistem Supabase RPC fonksiyonundan tek listede 10 araç getirir.",
   },
   comparisons: {
     title: "Karşılaştırmalar",
@@ -129,19 +127,13 @@ const navItems: { id: ActiveTab; label: string; icon: typeof PenLine }[] = [
   { id: "settings", label: "Ayarlar", icon: Settings },
 ];
 
-const categoryIcons: Record<RecommendationSection["id"], typeof ShieldCheck> = {
-  bestFit: Sparkles,
-  safeChoice: ShieldCheck,
-  budgetSmart: WalletCards,
-  comfortTech: BadgeCheck,
-};
-
 const priorityIcons: Record<Priority, typeof ShieldCheck> = {
   safety: ShieldCheck,
   economy: Fuel,
   family: UsersRound,
   comfort: BadgeCheck,
   performance: SlidersHorizontal,
+  youth: Sparkles,
   resale: WalletCards,
   city: CarFront,
   longTrip: ChevronRight,
@@ -149,27 +141,9 @@ const priorityIcons: Record<Priority, typeof ShieldCheck> = {
   tech: Sparkles,
 };
 
-const sectionImages: Record<RecommendationSection["id"], string> = {
-  bestFit:
-    "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1400&q=80",
-  safeChoice:
-    "https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=1400&q=80",
-  budgetSmart:
-    "https://images.unsplash.com/photo-1511919884226-fd3cad34687c?auto=format&fit=crop&w=1400&q=80",
-  comfortTech:
-    "https://images.unsplash.com/photo-1549924231-f129b911e442?auto=format&fit=crop&w=1400&q=80",
-};
-
 const carImages = {
-  electric:
-    "https://images.unsplash.com/photo-1619767886558-efdc259cde1a?auto=format&fit=crop&w=900&q=80",
-  suv: "https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&w=900&q=80",
-  sedan:
-    "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=900&q=80",
-  hatchback:
-    "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=80",
-  crossover:
-    "https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=900&q=80",
+  fallback:
+    "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=900&q=80",
 };
 
 export function CarAdvisor() {
@@ -178,6 +152,7 @@ export function CarAdvisor() {
   const [appliedPreferences, setAppliedPreferences] = useState<RecommendationRequest>(initialPreferences);
   const [sliderDomain, setSliderDomain] = useState<PriceDomain>(initialSliderDomain);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+  const [favoriteItems, setFavoriteItems] = useState<Record<string, RecommendedCar>>({});
   const [data, setData] = useState<RecommendationResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showWeights, setShowWeights] = useState(false);
@@ -190,8 +165,8 @@ export function CarAdvisor() {
   );
   const uniqueRecommendations = useMemo(() => getUniqueRecommendations(data), [data]);
   const favoriteRecommendations = useMemo(
-    () => getFavoriteRecommendations(favoriteIds, uniqueRecommendations),
-    [favoriteIds, uniqueRecommendations],
+    () => getFavoriteRecommendations(favoriteIds, uniqueRecommendations, favoriteItems),
+    [favoriteIds, favoriteItems, uniqueRecommendations],
   );
   const hasPendingChanges = useMemo(
     () => getPreferenceKey(preferences) !== getPreferenceKey(appliedPreferences),
@@ -212,7 +187,7 @@ export function CarAdvisor() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(nextPreferences),
+        body: JSON.stringify(toRecommendationPayload(nextPreferences)),
       });
 
       if (!response.ok) {
@@ -283,18 +258,14 @@ export function CarAdvisor() {
   function toggleBodyType(bodyType: BodyType) {
     setPreferences((current) => ({
       ...current,
-      bodyTypes: current.bodyTypes.includes(bodyType)
-        ? current.bodyTypes.filter((item) => item !== bodyType)
-        : [...current.bodyTypes, bodyType],
+      bodyTypes: current.bodyTypes.includes(bodyType) ? [] : [bodyType],
     }));
   }
 
   function toggleFuelType(fuelType: FuelType) {
     setPreferences((current) => ({
       ...current,
-      fuelTypes: current.fuelTypes.includes(fuelType)
-        ? current.fuelTypes.filter((item) => item !== fuelType)
-        : [...current.fuelTypes, fuelType],
+      fuelTypes: current.fuelTypes.includes(fuelType) ? [] : [fuelType],
     }));
   }
 
@@ -310,10 +281,26 @@ export function CarAdvisor() {
     }));
   }
 
-  function toggleFavorite(carId: string) {
+  function toggleFavorite(recommendation: RecommendedCar) {
+    const carId = recommendation.car.id;
+
     setFavoriteIds((current) =>
       current.includes(carId) ? current.filter((id) => id !== carId) : [...current, carId],
     );
+    setFavoriteItems((current) => {
+      if (current[carId]) {
+        const next = { ...current };
+
+        delete next[carId];
+
+        return next;
+      }
+
+      return {
+        ...current,
+        [carId]: recommendation,
+      };
+    });
   }
 
   return (
@@ -506,7 +493,7 @@ export function CarAdvisor() {
                 </section>
 
                 <section className="space-y-3">
-                  <Label title="Koltuk" value={`En az ${preferences.minSeats}`} />
+                  <Label title="Koltuk" value={preferences.minSeats > 0 ? `En az ${preferences.minSeats}` : "Farketmez"} />
                   <select
                     value={preferences.minSeats}
                     onChange={(event) =>
@@ -517,6 +504,7 @@ export function CarAdvisor() {
                     }
                     className="h-11 w-full rounded-md border border-neutral-200 bg-white px-3 text-sm outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
                   >
+                    <option value={0}>Farketmez</option>
                     <option value={2}>En az 2 koltuk</option>
                     <option value={4}>En az 4 koltuk</option>
                     <option value={5}>En az 5 koltuk</option>
@@ -591,7 +579,7 @@ function RecommendationResults({
   priorities: Priority[];
   favoriteIds: string[];
   onToggleWeights: () => void;
-  onToggleFavorite: (carId: string) => void;
+  onToggleFavorite: (recommendation: RecommendedCar) => void;
 }) {
   return (
     <section className="min-w-0 space-y-4">
@@ -605,7 +593,7 @@ function RecommendationResults({
               <div>
                 <h2 className="text-xl font-semibold">Öneri listesi</h2>
                 <p className="mt-2 text-sm text-neutral-600">
-                  {data.totalMatches} araç filtrelere uygun. Her başlık kendi karar ağırlığına göre sıralandı.
+                  RPC fonksiyonundan dönen en iyi {data.totalMatches} araç tek listede sıralandı.
                 </p>
               </div>
               <button
@@ -619,51 +607,20 @@ function RecommendationResults({
             {showWeights ? <WeightPanel priorities={priorities} /> : null}
           </div>
 
-          {data.sections.map((section) => {
-            const Icon = categoryIcons[section.id];
-
-            return (
-              <article
-                key={section.id}
-                className="overflow-hidden rounded-md border border-neutral-200 bg-white shadow-sm"
-              >
-                <div
-                  className="relative min-h-28 bg-[#dfe9e2] p-5"
-                  style={{
-                    backgroundImage: `linear-gradient(90deg, rgba(239,246,241,0.98) 0%, rgba(239,246,241,0.86) 38%, rgba(239,246,241,0.28) 66%, rgba(239,246,241,0.08) 100%), url(${sectionImages[section.id]})`,
-                    backgroundPosition: "center",
-                    backgroundSize: "cover",
-                  }}
-                >
-                  <div className="flex max-w-2xl gap-4">
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-[#014636] text-white shadow-sm">
-                      <Icon className="h-7 w-7" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-semibold">{section.title}</h3>
-                      <p className="mt-2 text-sm leading-6 text-neutral-700">{section.description}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 p-3 min-[1180px]:grid-cols-3">
-                  {section.recommendations.map((recommendation) => (
-                    <CarCard
-                      key={`${section.id}-${recommendation.car.id}`}
-                      recommendation={recommendation}
-                      isFavorite={favoriteIds.includes(recommendation.car.id)}
-                      onToggleFavorite={onToggleFavorite}
-                    />
-                  ))}
-                </div>
-              </article>
-            );
-          })}
+          <div className="grid gap-3 min-[900px]:grid-cols-2 min-[1180px]:grid-cols-3">
+            {data.recommendations.map((recommendation) => (
+              <CarCard
+                key={recommendation.car.id}
+                recommendation={recommendation}
+                isFavorite={favoriteIds.includes(recommendation.car.id)}
+                onToggleFavorite={onToggleFavorite}
+              />
+            ))}
+          </div>
 
           <p className="flex items-start gap-2 px-1 pb-4 text-xs leading-5 text-neutral-600">
             <CircleHelp className="mt-0.5 h-4 w-4 shrink-0" />
-            Skorlar, seçtiğin önceliklerin ağırlıklarına göre hesaplanır. Demo fiyatlar gerçek piyasa verisi yerine
-            örnek JSON üzerinden gelir.
+            Skor, sıralama ve fiyat kesişimi Supabase veritabanındaki arac_oner RPC fonksiyonundan gelir.
           </p>
         </>
       ) : null}
@@ -1163,7 +1120,7 @@ function SecondaryPanel({
   sliderDomain: PriceDomain;
   onTabChange: (tab: ActiveTab) => void;
   onReset: () => void;
-  onToggleFavorite: (carId: string) => void;
+  onToggleFavorite: (recommendation: RecommendedCar) => void;
 }) {
   if (activeTab === "comparisons") {
     const comparisonItems = recommendations.slice(0, 3);
@@ -1201,11 +1158,11 @@ function SecondaryPanel({
               <tbody>
                 {[
                   ["Eşleşme", ...comparisonItems.map((item) => `%${item.score}`)],
-                  ["Fiyat", ...comparisonItems.map((item) => formatMoney(item.car.priceTry))],
-                  ["Yıllık gider", ...comparisonItems.map((item) => formatMoney(item.car.annualCostTry))],
-                  ["Güvenlik", ...comparisonItems.map((item) => `${item.car.safetyScore}/10`)],
-                  ["Konfor", ...comparisonItems.map((item) => `${item.car.comfortScore}/10`)],
-                  ["Yakıt", ...comparisonItems.map((item) => fuelLabel(item.car.fuelType))],
+                  ["Piyasa fiyatı", ...comparisonItems.map((item) => formatPriceRange(item.car))],
+                  ["Yıllık gider", ...comparisonItems.map((item) => formatMoney(item.car.avgAnnualCostTry))],
+                  ["Model yılı", ...comparisonItems.map((item) => formatYearRange(item.car))],
+                  ["KM aralığı", ...comparisonItems.map((item) => formatKmRange(item.car))],
+                  ["Güç", ...comparisonItems.map((item) => `${item.car.powerHp} hp`)],
                 ].map((row) => (
                   <tr key={row[0]}>
                     {row.map((cell, index) => (
@@ -1315,7 +1272,7 @@ function CarCard({
 }: {
   recommendation: RecommendedCar;
   isFavorite: boolean;
-  onToggleFavorite: (carId: string) => void;
+  onToggleFavorite: (recommendation: RecommendedCar) => void;
 }) {
   const { car } = recommendation;
 
@@ -1324,12 +1281,12 @@ function CarCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#014636]">
-            {car.year} / {car.segment}
+            {formatYearRange(car)} / {car.segment}
           </p>
           <h4 className="mt-2 text-base font-semibold leading-tight sm:text-lg">
             {car.make} {car.model}
           </h4>
-          <p className="mt-1 text-xs leading-5 text-neutral-600 sm:text-sm">{car.trim}</p>
+          <p className="mt-1 text-xs leading-5 text-neutral-600 sm:text-sm">{car.trimLevel}</p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           <div className="rounded bg-[#014636] px-2.5 py-1 text-sm font-bold text-white">
@@ -1337,7 +1294,7 @@ function CarCard({
           </div>
           <button
             type="button"
-            onClick={() => onToggleFavorite(car.id)}
+            onClick={() => onToggleFavorite(recommendation)}
             className={`flex h-8 w-8 items-center justify-center rounded-full border transition ${
               isFavorite
                 ? "border-[#014636] bg-[#014636] text-white"
@@ -1362,15 +1319,15 @@ function CarCard({
       />
 
       <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-        <Metric label="Fiyat" value={formatMoney(car.priceTry)} />
-        <Metric label="Yıllık gider" value={formatMoney(car.annualCostTry)} />
-        <Metric label="Yakıt" value={fuelLabel(car.fuelType)} />
-        <Metric label="Şanzıman" value={transmissionLabel(car.transmission)} />
+        <Metric label="Piyasa fiyatı" value={formatPriceRange(car)} />
+        <Metric label="Yıllık gider" value={formatMoney(car.avgAnnualCostTry)} />
+        <Metric label="KM aralığı" value={formatKmRange(car)} />
+        <Metric label="Güç" value={`${car.powerHp} hp`} />
       </div>
 
       <div className="mt-4">
         <div className="text-sm font-semibold leading-5 text-[#0a1110]">
-          {recommendation.matchedPriorities.join(", ") || recommendation.confidenceLabel}
+          {recommendation.matchedPriorities.slice(0, 3).join(", ") || recommendation.confidenceLabel}
         </div>
         <div className="mt-2 h-2 rounded-full bg-neutral-200">
           <div
@@ -1382,6 +1339,7 @@ function CarCard({
 
       <div className="mt-4 space-y-2">
         <h5 className="text-sm font-semibold">Neden önerildi?</h5>
+        <p className="text-sm leading-5 text-neutral-600">{car.conditionSummary}</p>
         <ul className="space-y-2 text-sm leading-5 text-neutral-700">
           {recommendation.reasons.slice(0, 3).map((reason) => (
             <li key={reason} className="flex gap-2">
@@ -1708,24 +1666,14 @@ function clampToStep(value: number, step: number, min: number, max: number) {
 }
 
 function getUniqueRecommendations(data: RecommendationResponse | null) {
-  if (!data) return [];
-
-  const seen = new Set<string>();
-  const recommendations: RecommendedCar[] = [];
-
-  data.sections.forEach((section) => {
-    section.recommendations.forEach((recommendation) => {
-      if (seen.has(recommendation.car.id)) return;
-
-      seen.add(recommendation.car.id);
-      recommendations.push(recommendation);
-    });
-  });
-
-  return recommendations;
+  return data?.recommendations ?? [];
 }
 
-function getFavoriteRecommendations(favoriteIds: string[], currentRecommendations: RecommendedCar[]) {
+function getFavoriteRecommendations(
+  favoriteIds: string[],
+  currentRecommendations: RecommendedCar[],
+  favoriteItems: Record<string, RecommendedCar>,
+) {
   const currentById = new Map(currentRecommendations.map((recommendation) => [recommendation.car.id, recommendation]));
 
   return favoriteIds
@@ -1734,47 +1682,29 @@ function getFavoriteRecommendations(favoriteIds: string[], currentRecommendation
 
       if (currentRecommendation) return currentRecommendation;
 
-      const car = allCars.find((item) => item.id === carId);
-
-      if (!car) return null;
-
-      return createFavoriteRecommendation(car);
+      return favoriteItems[carId] ?? null;
     })
     .filter((item): item is RecommendedCar => Boolean(item));
 }
 
-function createFavoriteRecommendation(car: Car): RecommendedCar {
-  const score = Math.round(
-    Math.min(
-      98,
-      Math.max(
-        1,
-        ((car.safetyScore + car.efficiencyScore + car.familyScore + car.comfortScore + car.reliabilityScore) / 5) *
-          10,
-      ),
-    ),
-  );
-
-  return {
-    car,
-    score,
-    confidenceLabel: "Favoriye eklendi",
-    matchedPriorities: car.tags.slice(0, 3),
-    reasons: [
-      "Bu araç favorilerine eklendiği için arama filtresinden bağımsız gösteriliyor.",
-      ...car.highlights,
-    ].slice(0, 5),
-    tradeoffs: car.tradeoffs,
-  };
+function getCarImage(car: RecommendedVehicle) {
+  return car.imageUrl ?? carImages.fallback;
 }
 
-function getCarImage(car: Car) {
-  if (car.fuelType === "electric") return carImages.electric;
-  if (car.bodyType === "suv") return carImages.suv;
-  if (car.bodyType === "crossover") return carImages.crossover;
-  if (car.bodyType === "sedan") return carImages.sedan;
+function formatPriceRange(car: RecommendedVehicle) {
+  return `${formatMoney(car.marketMinPrice)} - ${formatMoney(car.marketMaxPrice)}`;
+}
 
-  return carImages.hatchback;
+function formatYearRange(car: RecommendedVehicle) {
+  return car.minYear === car.maxYear ? `${car.minYear}` : `${car.minYear}-${car.maxYear}`;
+}
+
+function formatKmRange(car: RecommendedVehicle) {
+  const formatter = new Intl.NumberFormat("tr-TR", {
+    maximumFractionDigits: 0,
+  });
+
+  return `${formatter.format(car.minKm)} - ${formatter.format(car.maxKm)} km`;
 }
 
 function formatMoney(value: number) {
@@ -1809,6 +1739,18 @@ function parseNumberInput(value: string) {
   return Number.isFinite(numericValue) ? numericValue : PRICE_MIN;
 }
 
+function toRecommendationPayload(preferences: RecommendationRequest) {
+  return {
+    minBudget: preferences.minPrice,
+    maxBudget: preferences.maxPrice,
+    priorities: preferences.priorities,
+    bodyType: preferences.bodyTypes[0],
+    fuelType: preferences.fuelTypes[0],
+    transmission: preferences.transmission === "any" ? undefined : preferences.transmission,
+    minSeats: preferences.minSeats > 0 ? preferences.minSeats : undefined,
+  };
+}
+
 function getPreferenceKey(preferences: RecommendationRequest) {
   return JSON.stringify({
     minPrice: preferences.minPrice,
@@ -1819,17 +1761,6 @@ function getPreferenceKey(preferences: RecommendationRequest) {
     transmission: preferences.transmission,
     minSeats: preferences.minSeats,
   });
-}
-
-function fuelLabel(value: FuelType) {
-  const labels: Record<FuelType, string> = {
-    gasoline: "Benzin",
-    diesel: "Dizel",
-    hybrid: "Hibrit",
-    electric: "Elektrik",
-  };
-
-  return labels[value];
 }
 
 function transmissionLabel(value: Transmission | "any") {
