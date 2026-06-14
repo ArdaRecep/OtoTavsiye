@@ -79,8 +79,8 @@ const categoryConfigs: Record<
 };
 
 const defaultRequest: RecommendationRequest = {
-  minPrice: 900000,
-  maxPrice: 2200000,
+  minPrice: 200000,
+  maxPrice: 60000000,
   priorities: ["safety", "economy", "lowMaintenance"],
   bodyTypes: [],
   fuelTypes: [],
@@ -91,8 +91,8 @@ const defaultRequest: RecommendationRequest = {
 export function normalizeRecommendationRequest(
   input: Partial<RecommendationRequest>,
 ): RecommendationRequest {
-  const minPrice = clampNumber(input.minPrice, 0, 20000000, defaultRequest.minPrice);
-  const maxPrice = clampNumber(input.maxPrice, minPrice, 20000000, defaultRequest.maxPrice);
+  const minPrice = clampNumber(input.minPrice, 200000, 60000000, defaultRequest.minPrice);
+  const maxPrice = clampNumber(input.maxPrice, minPrice, 60000000, defaultRequest.maxPrice);
   const minSeats = clampNumber(input.minSeats, 2, 9, defaultRequest.minSeats);
 
   return {
