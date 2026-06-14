@@ -42,11 +42,13 @@ import type {
   RecommendedCar,
   Transmission,
 } from "@/lib/types";
+import cars from "@/data/cars.json";
 
 const PRICE_MIN = 200000;
 const PRICE_MAX = 60000000;
-const SLIDER_EDGE_GAP_PERCENT = 5;
-const SLIDER_EXPANSION_DEAD_ZONE_PX = 16;
+const SLIDER_EDGE_GAP_PERCENT = 7;
+const SLIDER_EXPANSION_DEAD_ZONE_PX = 5;
+const allCars = cars as Car[];
 
 type PriceDomain = {
   min: number;
@@ -187,7 +189,10 @@ export function CarAdvisor() {
     [preferences.minPrice, preferences.maxPrice],
   );
   const uniqueRecommendations = useMemo(() => getUniqueRecommendations(data), [data]);
-  const favoriteRecommendations = uniqueRecommendations.filter((item) => favoriteIds.includes(item.car.id));
+  const favoriteRecommendations = useMemo(
+    () => getFavoriteRecommendations(favoriteIds, uniqueRecommendations),
+    [favoriteIds, uniqueRecommendations],
+  );
   const hasPendingChanges = useMemo(
     () => getPreferenceKey(preferences) !== getPreferenceKey(appliedPreferences),
     [appliedPreferences, preferences],
@@ -1718,6 +1723,49 @@ function getUniqueRecommendations(data: RecommendationResponse | null) {
   });
 
   return recommendations;
+}
+
+function getFavoriteRecommendations(favoriteIds: string[], currentRecommendations: RecommendedCar[]) {
+  const currentById = new Map(currentRecommendations.map((recommendation) => [recommendation.car.id, recommendation]));
+
+  return favoriteIds
+    .map((carId) => {
+      const currentRecommendation = currentById.get(carId);
+
+      if (currentRecommendation) return currentRecommendation;
+
+      const car = allCars.find((item) => item.id === carId);
+
+      if (!car) return null;
+
+      return createFavoriteRecommendation(car);
+    })
+    .filter((item): item is RecommendedCar => Boolean(item));
+}
+
+function createFavoriteRecommendation(car: Car): RecommendedCar {
+  const score = Math.round(
+    Math.min(
+      98,
+      Math.max(
+        1,
+        ((car.safetyScore + car.efficiencyScore + car.familyScore + car.comfortScore + car.reliabilityScore) / 5) *
+          10,
+      ),
+    ),
+  );
+
+  return {
+    car,
+    score,
+    confidenceLabel: "Favoriye eklendi",
+    matchedPriorities: car.tags.slice(0, 3),
+    reasons: [
+      "Bu araç favorilerine eklendiği için arama filtresinden bağımsız gösteriliyor.",
+      ...car.highlights,
+    ].slice(0, 5),
+    tradeoffs: car.tradeoffs,
+  };
 }
 
 function getCarImage(car: Car) {
