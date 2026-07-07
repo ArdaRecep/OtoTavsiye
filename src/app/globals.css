@@ -12,14 +12,12 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html {
+  font-size: 14px;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   overflow-x: hidden;
-}
-
-button,
-input,
-select {
-  font: inherit;
 }
