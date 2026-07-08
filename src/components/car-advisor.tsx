@@ -10,14 +10,12 @@ import {
   ChevronDown,
   Fuel,
   Grid2X2,
-  Heart,
   Loader2,
   RefreshCw,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  ThumbsUp,
   UsersRound,
   WalletCards,
   X,
@@ -25,8 +23,9 @@ import {
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getComparisonItemIds, toggleComparisonItem } from "@/lib/compare-storage";
-import { ensureUser, getStoredUserId } from "@/lib/user-identity";
+import { getStoredUserId } from "@/lib/user-identity";
 import { useDebounce } from "@/hooks/use-debounce";
+import { FavoriteButton, VehicleRatingButton } from "./vehicle-social-actions";
 import type {
   FocusEvent,
   KeyboardEvent,
@@ -42,6 +41,7 @@ import type {
   RecommendationResponse,
   RecommendedCar,
   RecommendedVehicle,
+  VehicleSocialState,
   Transmission,
 } from "@/lib/types";
 
@@ -134,7 +134,6 @@ export function CarAdvisor() {
   const [preferences, setPreferences] = useState<RecommendationRequest>(initialPreferences);
   const [appliedPreferences, setAppliedPreferences] = useState<RecommendationRequest>(initialPreferences);
   const [sliderDomain, setSliderDomain] = useState<PriceDomain>(initialSliderDomain);
-  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [comparisonIds, setComparisonIds] = useState<string[]>([]);
   const [pendingComparisonId, setPendingComparisonId] = useState<string | null>(null);
   const [comparisonNotice, setComparisonNotice] = useState<string | null>(null);
@@ -142,21 +141,13 @@ export function CarAdvisor() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
-  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
-  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
+  const [socialByVehicleId, setSocialByVehicleId] = useState<Record<string, VehicleSocialState>>({});
   const [isMobileFiltersExpanded, setIsMobileFiltersExpanded] = useState(false);
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  const userIdRef = useRef("");
 
   useEffect(() => {
     queueMicrotask(() => {
-      const storedId = getStoredUserId();
-      if (storedId) {
-        userIdRef.current = storedId;
-      }
       setComparisonIds(getComparisonItemIds());
     });
   }, []);
@@ -183,130 +174,56 @@ export function CarAdvisor() {
     return () => window.removeEventListener("navbar-search-change", handleNavbarSearch);
   }, []);
 
-  async function initUserIfNeeded(): Promise<string> {
-    if (userIdRef.current) return userIdRef.current;
-    const user = await ensureUser();
-    userIdRef.current = user.id;
-    return user.id;
-  }
-
-  const fetchInteractionsForVehicles = useCallback(async (vehicleIds: string[]) => {
+  const fetchSocialStateForVehicles = useCallback(async (vehicleIds: string[]) => {
     const userId = getStoredUserId();
     if (!vehicleIds.length) return;
 
-    const results = await Promise.allSettled(
-      vehicleIds.map((id) => {
-        const params = new URLSearchParams({ vehicleId: id });
-        if (userId) params.set("userId", userId);
-        return fetch(`/api/interactions?${params.toString()}`).then((r) => r.json());
-      }),
-    );
-
-    setLikeCounts((prevCounts) => {
-      const nextCounts = { ...prevCounts };
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          nextCounts[vehicleIds[index]] = result.value.likeCount ?? 0;
-        }
-      });
-      return nextCounts;
+    const response = await fetch("/api/vehicle-social-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vehicleIds, userId }),
     });
+    const result = await response.json();
 
-    setLikedIds((prevLiked) => {
-      const nextLiked = new Set(prevLiked);
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          if (result.value.isLiked) nextLiked.add(vehicleIds[index]);
-          else nextLiked.delete(vehicleIds[index]);
-        }
-      });
-      return nextLiked;
-    });
+    if (!response.ok) return;
 
-    setFavoritedIds((prevFavorited) => {
-      const nextFavorited = new Set(prevFavorited);
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          if (result.value.isFavorite) nextFavorited.add(vehicleIds[index]);
-          else nextFavorited.delete(vehicleIds[index]);
-        }
-      });
-      
-      // Sync favoriteIds state with DB favorites
-      setFavoriteIds(Array.from(nextFavorited));
-      return nextFavorited;
+    setSocialByVehicleId((current) => {
+      const next = { ...current };
+
+      for (const state of (result.vehicles ?? []) as VehicleSocialState[]) {
+        next[state.vehicleId] = state;
+      }
+
+      return next;
     });
   }, []);
+
+  function mergeVehicleSocialState(vehicleId: string, nextState: Partial<VehicleSocialState>) {
+    setSocialByVehicleId((current) => {
+      const previous = current[vehicleId] ?? {
+        vehicleId,
+        averageRating: 0,
+        ratingCount: 0,
+        userRating: null,
+        favoriteCount: 0,
+        isFavorited: false,
+      };
+      const next = { ...current, [vehicleId]: { ...previous, ...nextState, vehicleId } };
+
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (data?.recommendations.length) {
       const ids = data.recommendations.map((r) => r.car.id);
       queueMicrotask(() => {
-        void fetchInteractionsForVehicles(ids);
+        void fetchSocialStateForVehicles(ids);
       });
     }
     // Only run when data changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
-
-  async function handleToggleLike(vehicleId: string) {
-    if (!userIdRef.current && !getStoredUserId()) {
-      setAuthNotice("Beğenmek için giriş yapmalısın.");
-      return;
-    }
-
-    setAuthNotice(null);
-
-    const wasLiked = likedIds.has(vehicleId);
-
-    // Optimistik olarak UI'ı hemen güncelle
-    setLikedIds((prev) => {
-      const next = new Set(prev);
-      if (wasLiked) next.delete(vehicleId);
-      else next.add(vehicleId);
-      return next;
-    });
-    setLikeCounts((prev) => ({
-      ...prev,
-      [vehicleId]: Math.max(0, (prev[vehicleId] || 0) + (wasLiked ? -1 : 1))
-    }));
-
-    try {
-      const userId = await initUserIfNeeded();
-      const response = await fetch("/api/interactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vehicleId, userId, action: "like" }),
-      });
-
-      if (!response.ok) throw new Error("Beğeni kaydedilemedi.");
-
-      const result = await response.json();
-      setLikeCounts((prev) => ({ ...prev, [vehicleId]: result.likeCount ?? 0 }));
-      setLikedIds((prev) => {
-        const next = new Set(prev);
-        if (result.isLiked) {
-          next.add(vehicleId);
-        } else {
-          next.delete(vehicleId);
-        }
-        return next;
-      });
-    } catch {
-      // Hata olursa geri al
-      setLikedIds((prev) => {
-        const next = new Set(prev);
-        if (wasLiked) next.add(vehicleId);
-        else next.delete(vehicleId);
-        return next;
-      });
-      setLikeCounts((prev) => ({
-        ...prev,
-        [vehicleId]: Math.max(0, (prev[vehicleId] || 0) + (wasLiked ? 1 : -1))
-      }));
-      setAuthNotice("Beğeni kaydedilemedi. Lütfen tekrar dene.");
-    }
-  }
 
   const formattedBudget = useMemo(
     () => `${formatMoney(preferences.minPrice)} - ${formatMoney(preferences.maxPrice)}`,
@@ -474,62 +391,6 @@ export function CarAdvisor() {
         ? current.priorities
         : [...current.priorities, nextPriority],
     }));
-  }
-
-  async function toggleFavorite(recommendation: RecommendedCar) {
-    const carId = recommendation.car.id;
-    const wasFavorite = favoriteIds.includes(carId) || favoritedIds.has(carId);
-
-    if (!userIdRef.current && !getStoredUserId()) {
-      setAuthNotice("Favorilere eklemek için giriş yapmalısın.");
-      return;
-    }
-
-    setAuthNotice(null);
-
-    setLocalFavorite(recommendation, !wasFavorite);
-
-    try {
-      const userId = await initUserIfNeeded();
-      const response = await fetch("/api/interactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vehicleId: carId, userId, action: "favorite" }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Favori kaydedilemedi.");
-      }
-
-      const result = await response.json();
-      setLocalFavorite(recommendation, Boolean(result.isFavorite));
-    } catch {
-      setLocalFavorite(recommendation, wasFavorite);
-      setAuthNotice("Favori kaydedilemedi. Giriş durumunu kontrol edip tekrar deneyebilirsin.");
-    }
-  }
-
-  function setLocalFavorite(recommendation: RecommendedCar, shouldFavorite: boolean) {
-    const carId = recommendation.car.id;
-
-    setFavoriteIds((current) => {
-      if (shouldFavorite) {
-        return current.includes(carId) ? current : [...current, carId];
-      }
-
-      return current.filter((id) => id !== carId);
-    });
-    setFavoritedIds((current) => {
-      const next = new Set(current);
-
-      if (shouldFavorite) {
-        next.add(carId);
-      } else {
-        next.delete(carId);
-      }
-
-      return next;
-    });
   }
 
   async function handleToggleComparison(recommendation: RecommendedCar) {
@@ -796,18 +657,14 @@ export function CarAdvisor() {
               recommendations={uniqueRecommendations}
               searchQuery={searchQuery}
               error={error}
-              authNotice={authNotice}
               isLoading={isLoading}
               isLoadingMore={isLoadingMore}
-              favoriteIds={favoriteIds}
               comparisonIds={comparisonIds}
               pendingComparisonId={pendingComparisonId}
               comparisonNotice={comparisonNotice}
-              onToggleFavorite={toggleFavorite}
               onToggleComparison={handleToggleComparison}
-              likeCounts={likeCounts}
-              likedIds={likedIds}
-              onToggleLike={handleToggleLike}
+              socialByVehicleId={socialByVehicleId}
+              onSocialChange={mergeVehicleSocialState}
               onLoadMore={loadMoreResults}
             />
 
@@ -828,36 +685,28 @@ function RecommendationResults({
   recommendations,
   searchQuery,
   error,
-  authNotice,
   isLoading,
   isLoadingMore,
-  favoriteIds,
   comparisonIds,
   pendingComparisonId,
   comparisonNotice,
-  onToggleFavorite,
   onToggleComparison,
-  likeCounts,
-  likedIds,
-  onToggleLike,
+  socialByVehicleId,
+  onSocialChange,
   onLoadMore,
 }: {
   data: RecommendationResponse | null;
   recommendations: RecommendedCar[];
   searchQuery: string;
   error: string | null;
-  authNotice: string | null;
   isLoading: boolean;
   isLoadingMore: boolean;
-  favoriteIds: string[];
   comparisonIds: string[];
   pendingComparisonId: string | null;
   comparisonNotice: string | null;
-  onToggleFavorite: (recommendation: RecommendedCar) => void;
   onToggleComparison: (recommendation: RecommendedCar) => void;
-  likeCounts: Record<string, number>;
-  likedIds: Set<string>;
-  onToggleLike: (vehicleId: string) => void;
+  socialByVehicleId: Record<string, VehicleSocialState>;
+  onSocialChange: (vehicleId: string, nextState: Partial<VehicleSocialState>) => void;
   onLoadMore: () => void;
 }) {
   const hasSearch = searchQuery.trim().length > 0;
@@ -871,7 +720,6 @@ function RecommendationResults({
   return (
     <section className="min-w-0 space-y-4">
       {error ? <ErrorState message={error} /> : null}
-      {authNotice ? <NoticeState message={authNotice} /> : null}
       {comparisonNotice ? <NoticeState message={comparisonNotice} /> : null}
       {isLoading ? <LoadingState /> : null}
       {!isLoading && data && data.totalMatches === 0 && !hasSearch ? <EmptyState /> : null}
@@ -898,14 +746,11 @@ function RecommendationResults({
                 <CarCard
                   key={recommendation.car.id}
                   recommendation={recommendation}
-                  isFavorite={favoriteIds.includes(recommendation.car.id)}
                   isCompared={comparisonIds.includes(recommendation.car.id)}
                   isComparisonPending={pendingComparisonId === recommendation.car.id}
-                  onToggleFavorite={onToggleFavorite}
                   onToggleComparison={onToggleComparison}
-                  likeCount={likeCounts[recommendation.car.id] ?? 0}
-                  isLiked={likedIds.has(recommendation.car.id)}
-                  onToggleLike={onToggleLike}
+                  socialState={socialByVehicleId[recommendation.car.id]}
+                  onSocialChange={onSocialChange}
                 />
               ))}
             </div>
@@ -1308,24 +1153,18 @@ function PriceRangeSlider({
 
 function CarCard({
   recommendation,
-  isFavorite,
   isCompared,
   isComparisonPending,
-  onToggleFavorite,
   onToggleComparison,
-  likeCount,
-  isLiked,
-  onToggleLike,
+  socialState,
+  onSocialChange,
 }: {
   recommendation: RecommendedCar;
-  isFavorite: boolean;
   isCompared: boolean;
   isComparisonPending: boolean;
-  onToggleFavorite: (recommendation: RecommendedCar) => void;
   onToggleComparison: (recommendation: RecommendedCar) => void;
-  likeCount: number;
-  isLiked: boolean;
-  onToggleLike: (vehicleId: string) => void;
+  socialState?: VehicleSocialState;
+  onSocialChange: (vehicleId: string, nextState: Partial<VehicleSocialState>) => void;
 }) {
   const { car } = recommendation;
 
@@ -1366,33 +1205,18 @@ function CarCard({
             >
               {isComparisonPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Grid2X2 className="h-4 w-4" />}
             </button>
-            <button
-              type="button"
-              onClick={() => onToggleLike(car.id)}
-              className={`flex h-9 items-center gap-1.5 rounded-full border px-3 transition ${
-                isLiked
-                  ? "border-[#014636]/30 bg-emerald-50 text-[#014636]"
-                  : "border-neutral-300 bg-white text-neutral-500 hover:text-[#014636] hover:border-[#014636]/30"
-              }`}
-              aria-label={`${car.make} ${car.model} beğen`}
-            >
-              <ThumbsUp className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
-              {likeCount > 0 && (
-                <span className="text-[13px] font-bold">{likeCount}</span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => onToggleFavorite(recommendation)}
-              className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
-                isFavorite
-                  ? "border-[#014636] bg-[#014636] text-white"
-                  : "border-neutral-300 bg-white text-neutral-500 hover:text-[#014636]"
-              }`}
-              aria-label={`${car.make} ${car.model} favori`}
-            >
-              <Heart className={`h-4 w-4 ${isFavorite ? "fill-current" : ""}`} />
-            </button>
+            <VehicleRatingButton
+              vehicleId={car.id}
+              state={socialState}
+              compact
+              onChange={(nextState) => onSocialChange(car.id, nextState)}
+            />
+            <FavoriteButton
+              vehicleId={car.id}
+              state={socialState}
+              compact
+              onChange={(nextState) => onSocialChange(car.id, nextState)}
+            />
           </div>
         </div>
       </div>

@@ -15,6 +15,8 @@ import {
 import type { ReactNode } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { CommentSection } from "@/components/comment-section";
+import { VehicleDetailActions } from "@/components/vehicle-social-actions";
+import type { RecommendedCar } from "@/lib/types";
 
 
 export const dynamic = "force-dynamic";
@@ -90,6 +92,7 @@ export default async function CarDetailPage({ params }: PageProps) {
   const pros = car.pros ?? [];
   const cons = car.cons ?? [];
   const tags = car.tags ?? [];
+  const actionItem = toRecommendedCar(car);
 
   return (
     <>
@@ -167,6 +170,8 @@ export default async function CarDetailPage({ params }: PageProps) {
         </section>
 
         <aside className="space-y-4">
+          <VehicleDetailActions item={actionItem} />
+
           <div className="rounded-md border border-neutral-200 bg-white p-4 shadow-sm">
             <h2 className="text-base font-semibold">Teknik özet</h2>
             <dl className="mt-3 space-y-2 text-sm">
@@ -234,6 +239,38 @@ async function getVehicleProfile(id: string) {
   }
 
   return data;
+}
+
+function toRecommendedCar(car: VehicleProfileRow): RecommendedCar {
+  return {
+    car: {
+      id: car.id,
+      make: car.make,
+      model: car.model,
+      trimLevel: car.trim_level,
+      segment: car.segment,
+      powerHp: car.power_hp,
+      minYear: car.min_year,
+      maxYear: car.max_year,
+      minKm: car.min_km,
+      maxKm: car.max_km,
+      marketMinPrice: Number(car.market_min_price),
+      marketMaxPrice: Number(car.market_max_price),
+      avgAnnualCostTry: Number(car.avg_annual_cost_try),
+      conditionSummary: car.condition_summary,
+      imageUrl: car.image_url,
+      tags: car.tags ?? [],
+      whyListed: car.why_listed ?? [],
+      pros: car.pros ?? [],
+      cons: car.cons ?? [],
+      matchScore: null,
+    },
+    score: null,
+    confidenceLabel: "Detay",
+    reasons: car.why_listed ?? car.pros ?? [],
+    tradeoffs: car.cons ?? [],
+    matchedPriorities: [],
+  };
 }
 
 function DetailMetric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {

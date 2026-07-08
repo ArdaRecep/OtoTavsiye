@@ -38,8 +38,11 @@ export function getSupabasePublicKey() {
   throw new Error("Supabase public anon key bulunamadi. SUPABASE_ANON_KEY veya ANON_PUBLIC tanimlayin.");
 }
 
-export function createSupabaseServerClient() {
+export function createSupabaseServerClient(options?: { userId?: string | null }) {
   return createClient(getSupabaseUrl(), getSupabaseKey(), {
+    global: {
+      headers: options?.userId ? { "x-user-id": options.userId } : {},
+    },
     auth: {
       persistSession: false,
       autoRefreshToken: false,

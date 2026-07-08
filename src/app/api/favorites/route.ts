@@ -18,21 +18,20 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = createSupabaseServerClient();
-    const { data: interactions, error: interactionError } = await supabase
-      .from("user_vehicle_interactions")
+    const { data: favorites, error: favoriteError } = await supabase
+      .from("vehicle_favorites")
       .select("vehicle_id, created_at")
       .eq("user_id", userId)
-      .eq("is_favorite", true)
       .order("created_at", { ascending: false });
 
-    if (interactionError) {
+    if (favoriteError) {
       return Response.json(
-        { error: "Favoriler alınamadı.", details: interactionError.message },
+        { error: "Favoriler alınamadı.", details: favoriteError.message },
         { status: 500 },
       );
     }
 
-    const ids = (interactions ?? []).map((item) => item.vehicle_id as string).filter(Boolean);
+    const ids = (favorites ?? []).map((item) => item.vehicle_id as string).filter(Boolean);
     const appliedFilters = normalizeRecommendationRequest({
       minBudget: 0,
       maxBudget: Number.MAX_SAFE_INTEGER,

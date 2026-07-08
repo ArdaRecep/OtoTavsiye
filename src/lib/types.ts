@@ -103,6 +103,15 @@ export interface RecommendedCar {
   matchedPriorities: string[];
 }
 
+export interface VehicleSocialState {
+  vehicleId: string;
+  averageRating: number;
+  ratingCount: number;
+  userRating: number | null;
+  favoriteCount: number;
+  isFavorited: boolean;
+}
+
 export interface RecommendationResponse {
   recommendations: RecommendedCar[];
   totalMatches: number;
