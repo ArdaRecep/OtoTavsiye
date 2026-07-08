@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CarFront, Eye, EyeOff, Loader2, LogIn, Mail, Lock } from "lucide-react";
 import { storeUserInfo } from "@/lib/user-identity";
 
@@ -13,6 +13,18 @@ export default function GirisPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      const params = new URLSearchParams(window.location.search);
+
+      if (params.get("oauthError") === "google_disabled") {
+        setError(
+          "Google ile giriş Supabase tarafında henüz aktif değil. Yönetici panelinden Google sağlayıcısı açılınca bu seçenek çalışacak.",
+        );
+      }
+    });
+  }, []);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -44,6 +56,7 @@ export default function GirisPage() {
         id: data.user.id,
         username: data.user.username,
         avatarUrl: data.user.avatar_url ?? null,
+        email: data.user.email ?? null,
       });
 
       router.push("/");
@@ -140,6 +153,22 @@ export default function GirisPage() {
               Giriş Yap
             </button>
           </form>
+
+          <div className="my-5 flex items-center gap-3">
+            <div className="h-px flex-1 bg-neutral-200" />
+            <span className="text-xs text-neutral-400">veya</span>
+            <div className="h-px flex-1 bg-neutral-200" />
+          </div>
+
+          <Link
+            href="/api/auth/google"
+            className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-neutral-200 bg-white text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50"
+          >
+            <span className="flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 text-xs font-bold text-[#014636]">
+              G
+            </span>
+            Google ile devam et
+          </Link>
 
           {/* Alt link */}
           <div className="mt-6 text-center text-sm text-neutral-500">

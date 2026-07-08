@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import {
-  CarFront,
+  BookOpen,
   Folder,
   Grid2X2,
   Heart,
@@ -12,26 +12,40 @@ import {
   LogOut,
   PenLine,
   Search,
+  ShieldCheck,
   X,
 } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
-import { getStoredUserId, getStoredUserName, getStoredAvatarUrl } from "@/lib/user-identity";
+import { clearStoredUserInfo, getStoredAvatarUrl, getStoredUserId, getStoredUserName } from "@/lib/user-identity";
+import { ComparisonFloatingButton } from "./comparison-floating-button";
 
-export type ActiveTab = "recommendations" | "comparisons" | "favorites" | "settings";
+export type ActiveTab = "recommendations" | "comparisons" | "favorites" | "blog" | "admin";
 
-export const navItems: { id: ActiveTab; label: string; icon: typeof PenLine }[] = [
-  { id: "recommendations", label: "Öneriler", icon: PenLine },
-  { id: "comparisons", label: "Karşılaştırmalar", icon: Grid2X2 },
-  { id: "favorites", label: "Favoriler", icon: Heart },
+export const navItems: { id: ActiveTab; label: string; icon: typeof PenLine; href: string }[] = [
+  { id: "recommendations", label: "Öneriler", icon: PenLine, href: "/" },
+  { id: "comparisons", label: "Karşılaştırmalar", icon: Grid2X2, href: "/karsilastirmalar" },
+  { id: "favorites", label: "Favoriler", icon: Heart, href: "/favoriler" },
+  { id: "blog", label: "Blog", icon: BookOpen, href: "/blog" },
 ];
+
+type SearchResults = {
+  suggestions: string[];
+  categories: string[];
+};
+
 
 export function Brand() {
   return (
-    <Link href="/" className="flex shrink-0 items-center gap-2.5 transition hover:opacity-80">
-      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
-        <CarFront className="h-5 w-5" />
-      </div>
-      <div className="hidden text-sm font-semibold sm:block">Araç karar motoru</div>
+    <Link href="/" className="flex shrink-0 items-center gap-3 transition hover:opacity-90" aria-label="HangiAraç ana sayfa">
+      <span
+        className="h-11 w-11 rounded-xl border border-white/10 bg-contain bg-center bg-no-repeat shadow-sm"
+        style={{ backgroundImage: "url('/hangiArac.png')" }}
+        aria-hidden="true"
+      />
+      <span className="hidden text-[1.35rem] font-black tracking-tight sm:block">
+        <span className="text-white">Hangi</span>
+        <span className="text-emerald-300">Araç</span>
+      </span>
     </Link>
   );
 }
@@ -40,20 +54,25 @@ export function AuthButtons() {
   const [userId, setUserId] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const id = getStoredUserId();
-    if (id) {
-      setUserId(id);
-      setUsername(getStoredUserName());
-      setAvatarUrl(getStoredAvatarUrl());
-    }
+    queueMicrotask(() => {
+      const id = getStoredUserId();
+      if (id) {
+        setUserId(id);
+        setUsername(getStoredUserName());
+        setAvatarUrl(getStoredAvatarUrl());
+        void fetch(`/api/admin/status?userId=${encodeURIComponent(id)}`)
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data) => setIsAdmin(Boolean(data?.isAdmin)))
+          .catch(() => setIsAdmin(false));
+      }
+    });
   }, []);
 
   function handleLogout() {
-    localStorage.removeItem("oto_tavsiye_user_id");
-    localStorage.removeItem("oto_tavsiye_username");
-    localStorage.removeItem("oto_tavsiye_avatar");
+    clearStoredUserInfo();
     window.location.href = "/";
   }
 
@@ -62,6 +81,15 @@ export function AuthButtons() {
 
     return (
       <div className="flex shrink-0 items-center gap-3">
+        {isAdmin ? (
+          <Link
+            href="/admin"
+            className="hidden h-8 items-center gap-1.5 rounded-md border border-emerald-300/20 px-2.5 text-xs font-semibold text-emerald-50/90 transition hover:bg-white/10 sm:inline-flex"
+          >
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Admin
+          </Link>
+        ) : null}
         <div className="flex items-center gap-2">
           {avatarUrl ? (
             <img src={avatarUrl} alt={username} className="h-7 w-7 rounded-full object-cover" />
@@ -112,7 +140,7 @@ export function SearchField({
   autoFocus?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [results, setResults] = useState<{ suggestions: string[]; categories: string[] }>({
+  const [results, setResults] = useState<SearchResults>({
     suggestions: [],
     categories: [],
   });
@@ -122,23 +150,29 @@ export function SearchField({
 
   useEffect(() => {
     if (debouncedQuery.trim().length < 2) {
-      setResults({ suggestions: [], categories: [] });
-      setIsOpen(false);
+      queueMicrotask(() => {
+        setResults({ suggestions: [], categories: [] });
+        setIsOpen(false);
+      });
       return;
     }
 
     let isMounted = true;
-    setLoading(true);
+    queueMicrotask(() => {
+      if (isMounted) setLoading(true);
+    });
 
     fetch(`/api/autocomplete?q=${encodeURIComponent(debouncedQuery)}`)
       .then((res) => res.json())
       .then((data) => {
         if (!isMounted) return;
-        setResults({
+        const nextResults: SearchResults = {
           suggestions: data.suggestions || [],
           categories: data.categories || [],
-        });
-        setIsOpen((data.suggestions && data.suggestions.length > 0) || (data.categories && data.categories.length > 0));
+        };
+
+        setResults(nextResults);
+        setIsOpen(nextResults.suggestions.length > 0 || nextResults.categories.length > 0);
       })
       .catch((err) => console.error("Autocomplete error:", err))
       .finally(() => {
@@ -152,7 +186,7 @@ export function SearchField({
 
   return (
     <div className="relative w-full">
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-50/60" />
+      <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-50/65" />
       <input
         type="search"
         value={value}
@@ -169,13 +203,13 @@ export function SearchField({
         onBlur={() => {
           setTimeout(() => setIsOpen(false), 200);
         }}
-        placeholder="Marka veya model ara..."
+        placeholder="Marka, model veya paket ara..."
         aria-label="Araç ara"
-        className="h-9 w-full rounded-md border border-white/15 bg-white/10 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-emerald-50/50 focus:border-white/40 focus:bg-white/15"
+        className="h-11 w-full rounded-lg border border-white/15 bg-white/10 pl-11 pr-4 text-[15px] font-medium text-white outline-none transition placeholder:text-emerald-50/50 focus:border-white/40 focus:bg-white/15"
       />
 
       {isOpen && (
-        <div className="absolute top-full mt-1.5 w-full overflow-hidden rounded-lg border border-neutral-200 bg-white text-left shadow-xl z-50">
+        <div className="absolute top-full z-50 mt-2 w-full overflow-hidden rounded-xl border border-neutral-200 bg-white text-left shadow-2xl">
           {loading ? (
             <div className="flex items-center justify-center p-4 text-sm text-neutral-500">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -186,14 +220,12 @@ export function SearchField({
               {results.categories.length > 0 && (
                 <div className="mb-2">
                   <div className="px-3 pb-1.5 text-xs font-semibold text-neutral-400">Kategoriler</div>
-                  {results.categories.map((cat, i) => (
+                  {results.categories.map((cat) => (
                     <button
-                      key={i}
+                      key={cat}
                       className="flex w-full items-center gap-2 px-3 py-2 text-sm text-neutral-700 transition hover:bg-emerald-50 hover:text-emerald-700"
                       onClick={() => {
-                        const parts = cat.split(" > ");
-                        const query = parts.slice(2).join(" ");
-                        onChange(query);
+                        onChange(getCategorySearchQuery(cat));
                         setIsOpen(false);
                       }}
                     >
@@ -211,9 +243,9 @@ export function SearchField({
               {results.suggestions.length > 0 && (
                 <div>
                   <div className="px-3 pb-1.5 text-xs font-semibold text-neutral-400">Öneriler</div>
-                  {results.suggestions.map((sug, i) => (
+                  {results.suggestions.map((sug) => (
                     <button
-                      key={i}
+                      key={sug}
                       className="flex w-full items-center gap-2 px-3 py-2 text-sm text-neutral-700 transition hover:bg-emerald-50 hover:text-emerald-700"
                       onClick={() => {
                         onChange(sug);
@@ -235,27 +267,15 @@ export function SearchField({
 }
 
 export function Navbar({
-  activeTab,
-  onTabChange,
   searchQuery,
   onSearchChange,
 }: {
-  activeTab?: ActiveTab | null;
-  onTabChange?: (tab: ActiveTab) => void;
   searchQuery?: string;
   onSearchChange?: (value: string) => void;
 }) {
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
-
-  const handleTabChange = (tab: ActiveTab) => {
-    if (onTabChange) {
-      onTabChange(tab);
-    } else {
-      router.push(`/?tab=${tab}`);
-    }
-  };
 
   const handleSearchChange = (value: string) => {
     if (onSearchChange && pathname === "/") {
@@ -266,78 +286,92 @@ export function Navbar({
   };
 
   const navLinks = (
-    <nav className="-mx-1 flex items-center gap-1 overflow-x-auto px-1">
+    <nav className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1">
       {navItems.map((item) => {
         const Icon = item.icon;
-        const isActive = item.id === activeTab;
+        const isActive = isNavItemActive(pathname, item.href);
 
         return (
-          <button
+          <Link
             key={item.id}
-            type="button"
-            onClick={() => handleTabChange(item.id)}
-            className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold transition ${
+            href={item.href}
+            className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-lg px-3.5 text-sm font-semibold transition ${
               isActive ? "bg-[#0b513c] text-white" : "text-emerald-50/90 hover:bg-white/10"
             }`}
           >
             <Icon className="h-4 w-4" />
             {item.label}
-          </button>
+          </Link>
         );
       })}
     </nav>
   );
 
   return (
-    <header className="sticky top-0 z-30 border-b border-emerald-950/30 bg-[#00261e] text-white shadow-sm">
-      <div className="mx-auto w-full max-w-[1920px] px-3 py-2.5 sm:px-5">
-        {/* Masaüstü: tek satır */}
-        <div className="hidden items-center gap-4 lg:flex">
-          <Brand />
-          <div className="relative w-52 shrink-0 xl:w-72">
-            <SearchField value={searchQuery || ""} onChange={handleSearchChange} />
-          </div>
-          {navLinks}
-          <div className="flex-1" />
-          <AuthButtons />
-        </div>
-
-        {/* Mobil: büyüteç ikonu tıklanınca açılan arama */}
-        <div className="lg:hidden">
-          {mobileSearchOpen ? (
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <SearchField value={searchQuery || ""} onChange={handleSearchChange} autoFocus />
-              </div>
-              <button
-                type="button"
-                onClick={() => setMobileSearchOpen(false)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-white/80 transition hover:bg-white/10"
-                aria-label="Aramayı kapat"
-              >
-                <X className="h-5 w-5" />
-              </button>
+    <>
+      <header className="sticky top-0 z-30 border-b border-emerald-950/30 bg-[#00261e] text-white shadow-sm">
+        <div className="mx-auto w-full max-w-[1920px] px-3 py-3 sm:px-5">
+          {/* Masaüstü: tek satır */}
+          <div className="hidden items-center gap-5 lg:flex">
+            <Brand />
+            <div className="relative w-[360px] shrink-0 xl:w-[540px] 2xl:w-[680px]">
+              <SearchField value={searchQuery || ""} onChange={handleSearchChange} />
             </div>
-          ) : (
-            <>
+            {navLinks}
+            <div className="flex-1" />
+            <AuthButtons />
+          </div>
+
+          {/* Mobil: büyüteç ikonu tıklanınca açılan arama */}
+          <div className="lg:hidden">
+            {mobileSearchOpen ? (
               <div className="flex items-center gap-2">
-                <Brand />
-                <div className="flex-1" />
+                <div className="relative flex-1">
+                  <SearchField value={searchQuery || ""} onChange={handleSearchChange} autoFocus />
+                </div>
                 <button
                   type="button"
-                  onClick={() => setMobileSearchOpen(true)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-white/90 transition hover:bg-white/10"
-                  aria-label="Ara"
+                  onClick={() => setMobileSearchOpen(false)}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10"
+                  aria-label="Aramayı kapat"
                 >
-                  <Search className="h-5 w-5" />
+                  <X className="h-5 w-5" />
                 </button>
-                <AuthButtons />
               </div>
-              <div className="mt-2">{navLinks}</div>
-            </>
-          )}
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <Brand />
+                  <div className="flex-1" />
+                  <button
+                    type="button"
+                    onClick={() => setMobileSearchOpen(true)}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/90 transition hover:bg-white/10"
+                    aria-label="Ara"
+                  >
+                    <Search className="h-5 w-5" />
+                  </button>
+                  <AuthButtons />
+                </div>
+                <div className="mt-2">{navLinks}</div>
+              </>
+            )}
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+      <ComparisonFloatingButton />
+    </>
   );
+}
+
+function getCategorySearchQuery(category: string) {
+  const parts = category.split(" > ").map((part) => part.trim()).filter(Boolean);
+
+  return parts.length > 2 ? parts.slice(1).join(" ") : category;
+}
+
+function isNavItemActive(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+
+  return pathname === href || pathname.startsWith(`${href}/`);
 }

@@ -1,20 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   CornerDownRight,
   Loader2,
   MessageCircle,
   Send,
-  User,
+  Trash2,
 } from "lucide-react";
+import { useAdminStatus } from "@/hooks/use-admin-status";
 import {
-  ensureUser,
   getStoredUserId,
   getStoredUserName,
-  updateStoredUserName,
   type UserInfo,
 } from "@/lib/user-identity";
+import { AuthModal } from "./auth-modal";
 
 type CommentData = {
   id: string;
@@ -30,12 +30,23 @@ type CommentData = {
   replies: CommentData[];
 };
 
+type PendingComment = {
+  content: string;
+  parentId: string | null;
+  clearDraft: () => void;
+};
+
 export function CommentSection({ vehicleId }: { vehicleId: string }) {
   const [comments, setComments] = useState<CommentData[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
-  const currentUserId = useRef("");
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [currentUserName, setCurrentUserName] = useState("");
+  const [pendingComment, setPendingComment] = useState<PendingComment | null>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const { userId: adminUserId, isAdmin } = useAdminStatus();
 
   const fetchComments = useCallback(async () => {
     try {
@@ -54,34 +65,41 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
   }, [vehicleId]);
 
   useEffect(() => {
-    currentUserId.current = getStoredUserId() ?? "";
-    void fetchComments();
+    queueMicrotask(() => {
+      setCurrentUserId(getStoredUserId() ?? "");
+      setCurrentUserName(getStoredUserName());
+      void fetchComments();
+    });
   }, [fetchComments]);
 
   async function handleSubmitComment(
     content: string,
-    userName: string,
     parentId?: string | null,
+    clearDraft?: () => void,
   ) {
-    // Kullanıcı yoksa oluştur
-    let userInfo: UserInfo;
-    try {
-      userInfo = await ensureUser(userName);
-      currentUserId.current = userInfo.id;
-    } catch {
-      throw new Error("Kullanıcı oluşturulamadı.");
+    if (!currentUserId) {
+      setPendingComment({
+        content,
+        parentId: parentId ?? null,
+        clearDraft: clearDraft ?? (() => undefined),
+      });
+      setIsAuthOpen(true);
+      return;
     }
 
-    updateStoredUserName(userName);
+    await submitComment(content, currentUserId, parentId ?? null);
+    clearDraft?.();
+  }
 
+  async function submitComment(content: string, userId: string, parentId: string | null) {
     const response = await fetch("/api/comments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         vehicleId,
-        userId: userInfo.id,
+        userId,
         content,
-        parentId: parentId ?? null,
+        parentId,
       }),
     });
 
@@ -91,6 +109,40 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
 
     setReplyingTo(null);
     await fetchComments();
+  }
+
+  async function handleAuthSuccess(user: UserInfo) {
+    setCurrentUserId(user.id);
+    setCurrentUserName(user.username);
+
+    if (!pendingComment) {
+      setIsAuthOpen(false);
+      return;
+    }
+
+    try {
+      await submitComment(pendingComment.content, user.id, pendingComment.parentId);
+      pendingComment.clearDraft();
+      setPendingComment(null);
+      setIsAuthOpen(false);
+    } catch {
+      setNotice("Giriş tamamlandı ama yorum gönderilemedi. Lütfen tekrar dene.");
+    }
+  }
+
+  async function handleDeleteComment(commentId: string) {
+    if (!adminUserId) return;
+
+    const response = await fetch("/api/admin/comments", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: adminUserId, commentId }),
+    });
+
+    if (response.ok) {
+      setNotice("Yorum silindi.");
+      await fetchComments();
+    }
   }
 
   return (
@@ -104,11 +156,17 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
 
       <div className="mt-6">
         <CommentForm
-          onSubmit={(content, userName) => handleSubmitComment(content, userName)}
+          currentUserName={currentUserName}
+          onSubmit={(content, clearDraft) => handleSubmitComment(content, null, clearDraft)}
           placeholder="Bu araç hakkında düşüncelerinizi paylaşın..."
           submitLabel="Yorum yap"
         />
       </div>
+      {notice ? (
+        <div className="mt-3 rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-semibold text-[#014636]">
+          {notice}
+        </div>
+      ) : null}
 
       <div className="mt-8 space-y-0">
         {isLoading ? (
@@ -129,18 +187,29 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
             <CommentThread
               key={comment.id}
               comment={comment}
-              currentUserId={currentUserId.current}
+              currentUserId={currentUserId}
+              currentUserName={currentUserName}
+              isAdmin={isAdmin}
               replyingTo={replyingTo}
               onReplyClick={(id) =>
                 setReplyingTo((current) => (current === id ? null : id))
               }
-              onSubmitReply={(content, userName, parentId) =>
-                handleSubmitComment(content, userName, parentId)
+              onSubmitReply={(content, parentId, clearDraft) =>
+                handleSubmitComment(content, parentId, clearDraft)
               }
+              onDeleteComment={handleDeleteComment}
             />
           ))
         )}
       </div>
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => {
+          setIsAuthOpen(false);
+          setPendingComment(null);
+        }}
+        onAuthenticated={handleAuthSuccess}
+      />
     </section>
   );
 }
@@ -148,22 +217,30 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
 function CommentThread({
   comment,
   currentUserId,
+  currentUserName,
+  isAdmin,
   replyingTo,
   onReplyClick,
   onSubmitReply,
+  onDeleteComment,
 }: {
   comment: CommentData;
   currentUserId: string;
+  currentUserName: string;
+  isAdmin: boolean;
   replyingTo: string | null;
   onReplyClick: (id: string) => void;
-  onSubmitReply: (content: string, userName: string, parentId: string) => Promise<void>;
+  onSubmitReply: (content: string, parentId: string, clearDraft: () => void) => Promise<void>;
+  onDeleteComment: (commentId: string) => void;
 }) {
   return (
     <div className="border-b border-neutral-100 last:border-0">
       <CommentBubble
         comment={comment}
         isOwn={comment.user_id === currentUserId}
+        canDelete={isAdmin}
         onReplyClick={() => onReplyClick(comment.id)}
+        onDelete={() => onDeleteComment(comment.id)}
         isReplyOpen={replyingTo === comment.id}
       />
 
@@ -174,6 +251,8 @@ function CommentThread({
               key={reply.id}
               comment={reply}
               isOwn={reply.user_id === currentUserId}
+              canDelete={isAdmin}
+              onDelete={() => onDeleteComment(reply.id)}
               isReply
             />
           ))}
@@ -187,8 +266,9 @@ function CommentThread({
             {comment.user.username} kullanıcısına yanıt
           </div>
           <CommentForm
-            onSubmit={(content, userName) =>
-              onSubmitReply(content, userName, comment.id)
+            currentUserName={currentUserName}
+            onSubmit={(content, clearDraft) =>
+              onSubmitReply(content, comment.id, clearDraft)
             }
             placeholder="Yanıtınızı yazın..."
             submitLabel="Yanıtla"
@@ -204,13 +284,17 @@ function CommentBubble({
   comment,
   isOwn,
   isReply,
+  canDelete,
   onReplyClick,
+  onDelete,
   isReplyOpen,
 }: {
   comment: CommentData;
   isOwn: boolean;
   isReply?: boolean;
+  canDelete?: boolean;
   onReplyClick?: () => void;
+  onDelete?: () => void;
   isReplyOpen?: boolean;
 }) {
   const username = comment.user?.username ?? "Anonim";
@@ -253,53 +337,65 @@ function CommentBubble({
         <p className="mt-1 text-sm leading-6 text-neutral-700 whitespace-pre-line">
           {comment.content}
         </p>
-        {!isReply && onReplyClick && (
-          <button
-            type="button"
-            onClick={onReplyClick}
-            className={`mt-2 inline-flex items-center gap-1.5 text-xs font-semibold transition ${
-              isReplyOpen
-                ? "text-[#014636]"
-                : "text-neutral-500 hover:text-[#014636]"
-            }`}
-          >
-            <CornerDownRight className="h-3 w-3" />
-            Yanıtla
-          </button>
-        )}
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {!isReply && onReplyClick && (
+            <button
+              type="button"
+              onClick={onReplyClick}
+              className={`inline-flex items-center gap-1.5 text-xs font-semibold transition ${
+                isReplyOpen
+                  ? "text-[#014636]"
+                  : "text-neutral-500 hover:text-[#014636]"
+              }`}
+            >
+              <CornerDownRight className="h-3 w-3" />
+              Yanıtla
+            </button>
+          )}
+          {canDelete && onDelete ? (
+            <button
+              type="button"
+              onClick={onDelete}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-500 transition hover:text-red-700"
+            >
+              <Trash2 className="h-3 w-3" />
+              Sil
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
 }
 
 function CommentForm({
+  currentUserName,
   onSubmit,
   placeholder,
   submitLabel,
   isCompact,
 }: {
-  onSubmit: (content: string, userName: string) => Promise<void>;
+  currentUserName: string;
+  onSubmit: (content: string, clearDraft: () => void) => Promise<void>;
   placeholder: string;
   submitLabel: string;
   isCompact?: boolean;
 }) {
-  const [name, setName] = useState(() => getStoredUserName());
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  async function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
 
-    if (!name.trim() || !content.trim()) return;
+    if (!content.trim()) return;
 
     setIsSubmitting(true);
     setError(null);
 
     try {
-      await onSubmit(content.trim(), name.trim());
-      setContent("");
+      await onSubmit(content.trim(), () => setContent(""));
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Yorum gönderilemedi.",
@@ -311,31 +407,12 @@ function CommentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      {!isCompact && (
-        <div className="flex items-center gap-2">
-          <User className="h-4 w-4 text-neutral-400" />
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Adınız veya takma adınız"
-            maxLength={50}
-            required
-            className="h-10 flex-1 rounded-md border border-neutral-200 bg-white px-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
-          />
+      {!currentUserName && (
+        <div className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-neutral-700">
+          Yorumunu yazabilirsin. Gönderirken hızlı giriş/kayıt penceresi açılacak ve metnin kaybolmayacak.
         </div>
       )}
-      {isCompact && !getStoredUserName() && (
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Adınız"
-          maxLength={50}
-          required
-          className="h-9 w-full rounded-md border border-neutral-200 bg-white px-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
-        />
-      )}
+      {currentUserName ? <p className="text-xs font-semibold text-neutral-500">{currentUserName} olarak yazıyorsun.</p> : null}
       <div className="relative">
         <textarea
           ref={textareaRef}
@@ -349,7 +426,7 @@ function CommentForm({
         />
         <button
           type="submit"
-          disabled={isSubmitting || !name.trim() || !content.trim()}
+          disabled={isSubmitting || !content.trim()}
           className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-[#014636] text-white transition hover:bg-[#003a2d] disabled:cursor-not-allowed disabled:bg-neutral-300"
           aria-label={submitLabel}
         >

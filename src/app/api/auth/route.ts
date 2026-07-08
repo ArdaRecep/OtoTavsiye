@@ -35,16 +35,17 @@ export async function GET(request: NextRequest) {
  * POST /api/auth
  * action: "register" → Yeni kullanıcı kaydı (email + username + opsiyonel password)
  * action: "login"    → E-posta ile giriş (password kontrolü)
- * action: "guest"    → Misafir kullanıcı oluşturma (eski davranış)
+ * action: "oauth"    → Supabase OAuth kullanıcısını users tablosuyla eşleştirir
  */
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { action, email, username, password } = body as {
-      action?: "register" | "login" | "guest";
+    const { action, email, username, password, accessToken } = body as {
+      action?: "register" | "login" | "oauth";
       email?: string;
       username?: string;
       password?: string;
+      accessToken?: string;
     };
 
     const supabase = createSupabaseServerClient();
@@ -133,6 +134,13 @@ export async function POST(request: Request) {
         );
       }
 
+      if (!user.password_hash) {
+        return Response.json(
+          { error: "Bu e-posta Google ile kayıtlı. Google ile devam et seçeneğini kullanın." },
+          { status: 401 },
+        );
+      }
+
       // Şifre kontrolü
       if (user.password_hash !== passwordHash) {
         return Response.json(
@@ -141,36 +149,92 @@ export async function POST(request: Request) {
         );
       }
 
-      // password_hash'i response'dan çıkar
-      const { password_hash: _, ...safeUser } = user;
-
-      return Response.json({ user: safeUser });
+      return Response.json({
+        user: {
+          id: user.id,
+          username: user.username,
+          avatar_url: user.avatar_url,
+          email: user.email,
+          created_at: user.created_at,
+        },
+      });
     }
 
-    // === MİSAFİR KAYIT (eski davranış) ===
-    if (!username?.trim()) {
-      return Response.json({ error: "username gerekli." }, { status: 400 });
+    // === GOOGLE / SUPABASE OAUTH ===
+    if (action === "oauth") {
+      if (!accessToken) {
+        return Response.json({ error: "OAuth token gerekli." }, { status: 400 });
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
+
+      if (authError || !authData.user?.email) {
+        return Response.json({ error: "Google oturumu doğrulanamadı." }, { status: 401 });
+      }
+
+      const oauthEmail = authData.user.email.trim().toLowerCase();
+      const metadata = authData.user.user_metadata ?? {};
+      const oauthUsername =
+        (typeof metadata.full_name === "string" && metadata.full_name.trim()) ||
+        (typeof metadata.name === "string" && metadata.name.trim()) ||
+        oauthEmail.split("@")[0];
+      const avatarUrl = typeof metadata.avatar_url === "string" ? metadata.avatar_url : null;
+
+      const { data: existingOAuthUser, error: lookupError } = await supabase
+        .from("users")
+        .select("id, username, avatar_url, email, created_at")
+        .eq("email", oauthEmail)
+        .maybeSingle();
+
+      if (lookupError) {
+        return Response.json(
+          { error: "Google hesabı kontrol edilemedi.", details: lookupError.message },
+          { status: 500 },
+        );
+      }
+
+      if (existingOAuthUser) {
+        const { data, error } = await supabase
+          .from("users")
+          .update({
+            username: existingOAuthUser.username || oauthUsername,
+            avatar_url: avatarUrl ?? existingOAuthUser.avatar_url,
+          })
+          .eq("id", existingOAuthUser.id)
+          .select("id, username, avatar_url, email, created_at")
+          .single();
+
+        if (error) {
+          return Response.json(
+            { error: "Google hesabı güncellenemedi.", details: error.message },
+            { status: 500 },
+          );
+        }
+
+        return Response.json({ user: data });
+      }
+
+      const { data, error } = await supabase
+        .from("users")
+        .insert({
+          email: oauthEmail,
+          username: oauthUsername,
+          avatar_url: avatarUrl,
+        })
+        .select("id, username, avatar_url, email, created_at")
+        .single();
+
+      if (error) {
+        return Response.json(
+          { error: "Google hesabı kaydedilemedi.", details: error.message },
+          { status: 500 },
+        );
+      }
+
+      return Response.json({ user: data });
     }
 
-    const guestEmail = `guest_${crypto.randomUUID().slice(0, 8)}@ototavsiye.local`;
-
-    const { data, error } = await supabase
-      .from("users")
-      .insert({
-        username: username.trim(),
-        email: guestEmail,
-      })
-      .select("id, username, avatar_url, email, created_at")
-      .single();
-
-    if (error) {
-      return Response.json(
-        { error: "Kullanıcı oluşturulamadı.", details: error.message },
-        { status: 500 },
-      );
-    }
-
-    return Response.json({ user: data }, { status: 201 });
+    return Response.json({ error: "Geçersiz auth aksiyonu." }, { status: 400 });
   } catch {
     return Response.json({ error: "Geçersiz istek." }, { status: 400 });
   }

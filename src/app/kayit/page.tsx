@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { CarFront, Check, Eye, EyeOff, Loader2, Lock, Mail, Shield, Sparkles, Star, User, UserPlus } from "lucide-react";
+import { CarFront, Check, Eye, EyeOff, Loader2, Lock, Mail, Shield, Star, User, UserPlus } from "lucide-react";
 import { storeUserInfo } from "@/lib/user-identity";
 
 export default function KayitPage() {
@@ -57,6 +57,7 @@ export default function KayitPage() {
         id: data.user.id,
         username: data.user.username,
         avatarUrl: data.user.avatar_url ?? null,
+        email: data.user.email ?? null,
       });
 
       router.push("/");
@@ -263,6 +264,16 @@ export default function KayitPage() {
               <span className="text-xs text-neutral-400">veya</span>
               <div className="h-px flex-1 bg-neutral-200" />
             </div>
+
+            <Link
+              href="/api/auth/google"
+              className="mb-3 flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50"
+            >
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 text-xs font-bold text-[#014636]">
+                G
+              </span>
+              Google ile kayıt ol
+            </Link>
 
             {/* Misafir giriş */}
             <Link

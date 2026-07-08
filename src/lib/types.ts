@@ -91,12 +91,12 @@ export interface RecommendedVehicle {
   whyListed: string[];
   pros: string[];
   cons: string[];
-  matchScore: number;
+  matchScore: number | null;
 }
 
 export interface RecommendedCar {
   car: RecommendedVehicle;
-  score: number;
+  score: number | null;
   confidenceLabel: string;
   reasons: string[];
   tradeoffs: string[];
@@ -107,4 +107,9 @@ export interface RecommendationResponse {
   recommendations: RecommendedCar[];
   totalMatches: number;
   appliedFilters: RecommendationRequest;
+  mode: "browse" | "recommended" | "search";
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  searchQuery?: string;
 }

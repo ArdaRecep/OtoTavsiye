@@ -3,11 +3,13 @@
 const USER_ID_KEY = "oto_tavsiye_user_id";
 const USERNAME_KEY = "oto_tavsiye_username";
 const AVATAR_KEY = "oto_tavsiye_avatar";
+const EMAIL_KEY = "oto_tavsiye_email";
 
 export type UserInfo = {
   id: string;
   username: string;
   avatarUrl: string | null;
+  email?: string | null;
 };
 
 /** localStorage'dan mevcut user_id'yi döndürür, yoksa null */
@@ -28,6 +30,20 @@ export function getStoredAvatarUrl(): string | null {
   return localStorage.getItem(AVATAR_KEY);
 }
 
+export function getStoredUser(): UserInfo | null {
+  const id = getStoredUserId();
+  const username = getStoredUserName();
+
+  if (!id || !username) return null;
+
+  return {
+    id,
+    username,
+    avatarUrl: getStoredAvatarUrl(),
+    email: typeof window === "undefined" ? null : localStorage.getItem(EMAIL_KEY),
+  };
+}
+
 /** Kullanıcı bilgilerini localStorage'a kaydeder */
 export function storeUserInfo(user: UserInfo): void {
   if (typeof window === "undefined") return;
@@ -35,7 +51,22 @@ export function storeUserInfo(user: UserInfo): void {
   localStorage.setItem(USERNAME_KEY, user.username);
   if (user.avatarUrl) {
     localStorage.setItem(AVATAR_KEY, user.avatarUrl);
+  } else {
+    localStorage.removeItem(AVATAR_KEY);
   }
+  if (user.email) {
+    localStorage.setItem(EMAIL_KEY, user.email);
+  } else {
+    localStorage.removeItem(EMAIL_KEY);
+  }
+}
+
+export function clearStoredUserInfo(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(USER_ID_KEY);
+  localStorage.removeItem(USERNAME_KEY);
+  localStorage.removeItem(AVATAR_KEY);
+  localStorage.removeItem(EMAIL_KEY);
 }
 
 /** Kullanıcı adını günceller (hem localStorage hem API) */
@@ -45,42 +76,15 @@ export function updateStoredUserName(name: string): void {
 }
 
 /**
- * Mevcut kullanıcıyı döndürür.
- * Eğer localStorage'da user yoksa, API üzerinden yeni misafir kullanıcı oluşturur.
+ * Mevcut giriş yapmış kullanıcıyı döndürür.
+ * Kullanıcı yoksa yeni hesap oluşturmaz.
  */
-export async function ensureUser(username?: string): Promise<UserInfo> {
-  const storedId = getStoredUserId();
-  const storedName = getStoredUserName();
+export async function ensureUser(): Promise<UserInfo> {
+  const storedUser = getStoredUser();
 
-  // Zaten kayıtlı kullanıcı varsa döndür
-  if (storedId && storedName) {
-    return {
-      id: storedId,
-      username: storedName,
-      avatarUrl: getStoredAvatarUrl(),
-    };
+  if (storedUser) {
+    return storedUser;
   }
 
-  // Yoksa yeni kullanıcı oluştur
-  const response = await fetch("/api/auth", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      username: username || `Misafir_${Math.random().toString(36).slice(2, 7)}`,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error("Kullanıcı oluşturulamadı.");
-  }
-
-  const data = await response.json();
-  const user: UserInfo = {
-    id: data.user.id,
-    username: data.user.username,
-    avatarUrl: data.user.avatar_url ?? null,
-  };
-
-  storeUserInfo(user);
-  return user;
+  throw new Error("Devam etmek için giriş yapmalısınız.");
 }

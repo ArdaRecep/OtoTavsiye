@@ -32,6 +32,12 @@ export type AracOnerRow = {
   match_score: number | string;
 };
 
+export type VehicleProfileRow = Omit<AracOnerRow, "match_score"> & {
+  body_type?: string;
+  fuel_type?: string;
+  transmission?: string;
+};
+
 export type AracOnerArgs = {
   p_min_budget: number;
   p_max_budget: number;
@@ -69,6 +75,9 @@ export type RawRecommendationRequest = Partial<Omit<RecommendationRequest, "prio
   priorities?: Priority[] | Partial<Record<Priority | "efficiency" | "maintenance" | "long_trip", number>>;
   bodyType?: BodyType;
   fuelType?: FuelType;
+  searchQuery?: string;
+  page?: number;
+  pageSize?: number;
 };
 
 const bodyTypeLabels: Partial<Record<BodyType, string>> = {
@@ -156,15 +165,77 @@ export function buildAracOnerArgs(request: RecommendationRequest): AracOnerArgs 
 export function buildRecommendationResponse(
   rows: AracOnerRow[],
   appliedFilters: RecommendationRequest,
+  options?: {
+    hasMore?: boolean;
+    mode?: RecommendationResponse["mode"];
+    page?: number;
+    pageSize?: number;
+    searchQuery?: string;
+    totalMatches?: number;
+  },
 ): RecommendationResponse {
   return {
     appliedFilters,
-    totalMatches: rows.length,
+    totalMatches: options?.totalMatches ?? rows.length,
     recommendations: rows.map(mapAracOnerRow),
+    mode: options?.mode ?? "recommended",
+    page: options?.page ?? 0,
+    pageSize: options?.pageSize ?? rows.length,
+    hasMore: options?.hasMore ?? false,
+    searchQuery: options?.searchQuery,
   };
 }
 
+export function buildBrowseResponse(
+  rows: VehicleProfileRow[],
+  appliedFilters: RecommendationRequest,
+  options: {
+    hasMore: boolean;
+    mode: "browse" | "search";
+    page: number;
+    pageSize: number;
+    searchQuery?: string;
+    totalMatches?: number;
+  },
+): RecommendationResponse {
+  return {
+    appliedFilters,
+    totalMatches: options.totalMatches ?? rows.length,
+    recommendations: rows.map(mapVehicleProfileRow),
+    mode: options.mode,
+    page: options.page,
+    pageSize: options.pageSize,
+    hasMore: options.hasMore,
+    searchQuery: options.searchQuery,
+  };
+}
+
+export function hasRecommendationFilters(request: RecommendationRequest) {
+  return (
+    request.priorities.length > 0 ||
+    request.bodyTypes.length > 0 ||
+    request.fuelTypes.length > 0 ||
+    request.transmission !== "any" ||
+    request.minSeats > 0
+  );
+}
+
+export function normalizePage(value: unknown) {
+  const numberValue = Number(value);
+
+  return Number.isFinite(numberValue) && numberValue > 0 ? Math.floor(numberValue) : 0;
+}
+
+export function normalizePageSize(value: unknown) {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return 24;
+
+  return Math.min(48, Math.max(10, Math.floor(numberValue)));
+}
+
 function mapAracOnerRow(row: AracOnerRow): RecommendedCar {
+  const matchScore = Number(row.match_score);
   const vehicle: RecommendedVehicle = {
     id: row.id,
     make: row.make,
@@ -185,14 +256,48 @@ function mapAracOnerRow(row: AracOnerRow): RecommendedCar {
     whyListed: row.why_listed ?? [],
     pros: row.pros ?? [],
     cons: row.cons ?? [],
-    matchScore: Number(row.match_score),
+    matchScore,
   };
-  const score = Math.round(vehicle.matchScore);
+  const score = Math.round(matchScore);
 
   return {
     car: vehicle,
     score,
     confidenceLabel: score >= 88 ? "Cok guclu eslesme" : score >= 76 ? "Guclu eslesme" : "Makul eslesme",
+    reasons: vehicle.whyListed.length ? vehicle.whyListed : [vehicle.conditionSummary],
+    tradeoffs: vehicle.cons,
+    matchedPriorities: vehicle.tags,
+  };
+}
+
+function mapVehicleProfileRow(row: VehicleProfileRow): RecommendedCar {
+  const vehicle: RecommendedVehicle = {
+    id: row.id,
+    make: row.make,
+    model: row.model,
+    trimLevel: row.trim_level,
+    segment: row.segment,
+    powerHp: Number(row.power_hp),
+    minYear: Number(row.min_year),
+    maxYear: Number(row.max_year),
+    minKm: Number(row.min_km),
+    maxKm: Number(row.max_km),
+    marketMinPrice: Number(row.market_min_price),
+    marketMaxPrice: Number(row.market_max_price),
+    avgAnnualCostTry: Number(row.avg_annual_cost_try),
+    conditionSummary: row.condition_summary,
+    imageUrl: row.image_url,
+    tags: row.tags ?? [],
+    whyListed: row.why_listed ?? [],
+    pros: row.pros ?? [],
+    cons: row.cons ?? [],
+    matchScore: null,
+  };
+
+  return {
+    car: vehicle,
+    score: null,
+    confidenceLabel: "Liste sonucu",
     reasons: vehicle.whyListed.length ? vehicle.whyListed : [vehicle.conditionSummary],
     tradeoffs: vehicle.cons,
     matchedPriorities: vehicle.tags,

@@ -13,8 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Araç Öneri Motoru",
-  description: "Bütçe ve önceliklere göre açıklanabilir araç önerileri.",
+  title: "HangiAraç",
+  description: "Bütçene ve kullanım tarzına göre araç seçeneklerini keşfet.",
+  icons: {
+    icon: "/logo.svg",
+  },
 };
 
 export default function RootLayout({

@@ -7,16 +7,11 @@ import {
   CarFront,
   Check,
   ChevronRight,
-  CircleHelp,
-  Folder,
   Fuel,
   Grid2X2,
   Heart,
   Loader2,
-  LogOut,
-  PenLine,
   RefreshCw,
-  Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
@@ -28,7 +23,8 @@ import {
   Zap,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ensureUser, getStoredUserId, getStoredUserName, getStoredAvatarUrl } from "@/lib/user-identity";
+import { getComparisonItemIds, toggleComparisonItem } from "@/lib/compare-storage";
+import { ensureUser, getStoredUserId } from "@/lib/user-identity";
 import { useDebounce } from "@/hooks/use-debounce";
 import type {
   FocusEvent,
@@ -52,6 +48,7 @@ const PRICE_MIN = 200000;
 const PRICE_MAX = 60000000;
 const SLIDER_EDGE_GAP_PERCENT = 7;
 const SLIDER_EXPANSION_DEAD_ZONE_PX = 5;
+const RESULTS_PAGE_SIZE = 24;
 
 type PriceDomain = {
   min: number;
@@ -63,7 +60,7 @@ const initialSliderDomain: PriceDomain = {
   max: PRICE_MAX,
 };
 
-import { Navbar, type ActiveTab } from "./navbar";
+import { Navbar } from "./navbar";
 
 const priorityOptions: { id: Priority; label: string }[] = [
   { id: "safety", label: "Güvenlik" },
@@ -106,24 +103,9 @@ const initialPreferences: RecommendationRequest = {
   minSeats: 0,
 };
 
-const tabMeta: Record<ActiveTab, { title: string; description: string }> = {
-  recommendations: {
-    title: "Bütçene ve önceliklerine göre araç önerisi",
-    description:
-      "Fiyat aralığını ve opsiyonel kriterlerini seç. Sistem Supabase RPC fonksiyonundan tek listede 10 araç getirir.",
-  },
-  comparisons: {
-    title: "Karşılaştırmalar",
-    description: "Öne çıkan adayları fiyat, gider, güvenlik ve kullanım profiliyle yan yana gör.",
-  },
-  favorites: {
-    title: "Favoriler",
-    description: "Beğendiğin araçları kaybetmeden kenara ayır, sonra karar masasına geri dön.",
-  },
-  settings: {
-    title: "Ayarlar",
-    description: "Dinamik fiyat ölçeği, demo veri ve tercih reseti gibi karar motoru ayarlarını yönet.",
-  },
+const pageMeta = {
+  title: "Bütçene ve önceliklerine göre araç önerisi",
+  description: "Fiyat aralığını ve tercihlerini seç, sana en uygun seçenekleri tek listede görelim.",
 };
 
 
@@ -148,27 +130,44 @@ const carImages = {
 };
 
 export function CarAdvisor() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>("recommendations");
   const [preferences, setPreferences] = useState<RecommendationRequest>(initialPreferences);
   const [appliedPreferences, setAppliedPreferences] = useState<RecommendationRequest>(initialPreferences);
   const [sliderDomain, setSliderDomain] = useState<PriceDomain>(initialSliderDomain);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
-  const [favoriteItems, setFavoriteItems] = useState<Record<string, RecommendedCar>>({});
+  const [comparisonIds, setComparisonIds] = useState<string[]>([]);
+  const [pendingComparisonId, setPendingComparisonId] = useState<string | null>(null);
+  const [comparisonNotice, setComparisonNotice] = useState<string | null>(null);
   const [data, setData] = useState<RecommendationResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showWeights, setShowWeights] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
   const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const userIdRef = useRef("");
 
   useEffect(() => {
-    const storedId = getStoredUserId();
-    if (storedId) {
-      userIdRef.current = storedId;
-    }
+    queueMicrotask(() => {
+      const storedId = getStoredUserId();
+      if (storedId) {
+        userIdRef.current = storedId;
+      }
+      setComparisonIds(getComparisonItemIds());
+    });
+  }, []);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      const params = new URLSearchParams(window.location.search);
+      const queryFromUrl = params.get("q")?.trim();
+
+      if (queryFromUrl) {
+        setSearchQuery(queryFromUrl);
+      }
+    });
   }, []);
 
   async function initUserIfNeeded(): Promise<string> {
@@ -221,13 +220,22 @@ export function CarAdvisor() {
   useEffect(() => {
     if (data?.recommendations.length) {
       const ids = data.recommendations.map((r) => r.car.id);
-      void fetchInteractionsForVehicles(ids);
+      queueMicrotask(() => {
+        void fetchInteractionsForVehicles(ids);
+      });
     }
     // Only run when data changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   async function handleToggleLike(vehicleId: string) {
+    if (!userIdRef.current && !getStoredUserId()) {
+      setAuthNotice("Beğenmek için giriş yapmalısın.");
+      return;
+    }
+
+    setAuthNotice(null);
+
     try {
       const userId = await initUserIfNeeded();
       const response = await fetch("/api/interactions", {
@@ -250,35 +258,45 @@ export function CarAdvisor() {
         return next;
       });
     } catch {
-      // Silently fail
+      setAuthNotice("Beğeni kaydedilemedi. Giriş durumunu kontrol edip tekrar deneyebilirsin.");
     }
   }
 
-  const activeMeta = tabMeta[activeTab];
   const formattedBudget = useMemo(
     () => `${formatMoney(preferences.minPrice)} - ${formatMoney(preferences.maxPrice)}`,
     [preferences.minPrice, preferences.maxPrice],
   );
   const uniqueRecommendations = useMemo(() => getUniqueRecommendations(data), [data]);
-  const searchedRecommendations = useMemo(
-    () => filterRecommendationsByQuery(uniqueRecommendations, searchQuery),
-    [searchQuery, uniqueRecommendations],
-  );
-  const favoriteRecommendations = useMemo(
-    () => getFavoriteRecommendations(favoriteIds, uniqueRecommendations, favoriteItems),
-    [favoriteIds, favoriteItems, uniqueRecommendations],
-  );
   const hasPendingChanges = useMemo(
     () => getPreferenceKey(preferences) !== getPreferenceKey(appliedPreferences),
     [appliedPreferences, preferences],
   );
 
   useEffect(() => {
-    void fetchRecommendations(initialPreferences);
-  }, []);
+    void fetchRecommendations(preferences, {
+      page: 0,
+      searchQuery: debouncedSearchQuery.trim(),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearchQuery]);
 
-  async function fetchRecommendations(nextPreferences: RecommendationRequest) {
-    setIsLoading(true);
+  async function fetchRecommendations(
+    nextPreferences: RecommendationRequest,
+    options?: {
+      append?: boolean;
+      page?: number;
+      searchQuery?: string;
+    },
+  ) {
+    const append = options?.append ?? false;
+    const page = options?.page ?? 0;
+    const activeSearchQuery = options?.searchQuery ?? debouncedSearchQuery.trim();
+
+    if (append) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
@@ -287,7 +305,11 @@ export function CarAdvisor() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(toRecommendationPayload(nextPreferences)),
+        body: JSON.stringify(toRecommendationPayload(nextPreferences, {
+          page,
+          pageSize: RESULTS_PAGE_SIZE,
+          searchQuery: activeSearchQuery,
+        })),
       });
 
       if (!response.ok) {
@@ -295,12 +317,23 @@ export function CarAdvisor() {
       }
 
       const payload = (await response.json()) as RecommendationResponse;
-      setData(payload);
-      setAppliedPreferences(payload.appliedFilters);
+      setData((current) =>
+        append && current
+          ? {
+              ...payload,
+              recommendations: [...current.recommendations, ...payload.recommendations],
+              totalMatches: current.recommendations.length + payload.recommendations.length,
+            }
+          : payload,
+      );
+      if (!activeSearchQuery) {
+        setAppliedPreferences(payload.appliedFilters);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Beklenmeyen bir hata oluştu.");
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
     }
   }
 
@@ -310,14 +343,30 @@ export function CarAdvisor() {
   }
 
   function applyCurrentPreferences() {
-    void fetchRecommendations(preferences);
+    void fetchRecommendations(preferences, {
+      page: 0,
+      searchQuery: debouncedSearchQuery.trim(),
+    });
   }
 
   function resetPreferences() {
     setPreferences(initialPreferences);
     setAppliedPreferences(initialPreferences);
     setSliderDomain(initialSliderDomain);
-    void fetchRecommendations(initialPreferences);
+    void fetchRecommendations(initialPreferences, {
+      page: 0,
+      searchQuery: debouncedSearchQuery.trim(),
+    });
+  }
+
+  function loadMoreResults() {
+    if (!data?.hasMore || isLoadingMore) return;
+
+    void fetchRecommendations(preferences, {
+      append: true,
+      page: data.page + 1,
+      searchQuery: debouncedSearchQuery.trim(),
+    });
   }
 
   function applyBudgetRange(minPrice: number, maxPrice: number, domain?: PriceDomain) {
@@ -383,50 +432,85 @@ export function CarAdvisor() {
 
   async function toggleFavorite(recommendation: RecommendedCar) {
     const carId = recommendation.car.id;
+    const wasFavorite = favoriteIds.includes(carId) || favoritedIds.has(carId);
 
-    // Optimistic UI update
-    setFavoriteIds((current) =>
-      current.includes(carId) ? current.filter((id) => id !== carId) : [...current, carId],
-    );
-    setFavoriteItems((current) => {
-      if (current[carId]) {
-        const next = { ...current };
-        delete next[carId];
-        return next;
-      }
-      return { ...current, [carId]: recommendation };
-    });
-    setFavoritedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(carId)) {
-        next.delete(carId);
-      } else {
-        next.add(carId);
-      }
-      return next;
-    });
+    if (!userIdRef.current && !getStoredUserId()) {
+      setAuthNotice("Favorilere eklemek için giriş yapmalısın.");
+      return;
+    }
 
-    // Persist to DB
+    setAuthNotice(null);
+
+    setLocalFavorite(recommendation, !wasFavorite);
+
     try {
       const userId = await initUserIfNeeded();
-      await fetch("/api/interactions", {
+      const response = await fetch("/api/interactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vehicleId: carId, userId, action: "favorite" }),
       });
+
+      if (!response.ok) {
+        throw new Error("Favori kaydedilemedi.");
+      }
+
+      const result = await response.json();
+      setLocalFavorite(recommendation, Boolean(result.isFavorite));
     } catch {
-      // Revert on error
-      setFavoriteIds((current) =>
-        current.includes(carId) ? current.filter((id) => id !== carId) : [...current, carId],
-      );
+      setLocalFavorite(recommendation, wasFavorite);
+      setAuthNotice("Favori kaydedilemedi. Giriş durumunu kontrol edip tekrar deneyebilirsin.");
     }
+  }
+
+  function setLocalFavorite(recommendation: RecommendedCar, shouldFavorite: boolean) {
+    const carId = recommendation.car.id;
+
+    setFavoriteIds((current) => {
+      if (shouldFavorite) {
+        return current.includes(carId) ? current : [...current, carId];
+      }
+
+      return current.filter((id) => id !== carId);
+    });
+    setFavoritedIds((current) => {
+      const next = new Set(current);
+
+      if (shouldFavorite) {
+        next.add(carId);
+      } else {
+        next.delete(carId);
+      }
+
+      return next;
+    });
+  }
+
+  async function handleToggleComparison(recommendation: RecommendedCar) {
+    const carName = `${recommendation.car.make} ${recommendation.car.model}`;
+    setPendingComparisonId(recommendation.car.id);
+    setComparisonNotice(null);
+
+    await new Promise((resolve) => setTimeout(resolve, 280));
+
+    const { items, status } = toggleComparisonItem(recommendation);
+    setComparisonIds(items.map((item) => item.car.id));
+    setPendingComparisonId(null);
+
+    if (status === "added") {
+      setComparisonNotice(`${carName} karşılaştırmaya eklendi.`);
+    } else if (status === "removed") {
+      setComparisonNotice(`${carName} karşılaştırmadan çıkarıldı.`);
+    } else {
+      setComparisonNotice("Karşılaştırma listesi dolu. En fazla 4 araç ekleyebilirsin.");
+    }
+
+    window.setTimeout(() => setComparisonNotice(null), 2600);
   }
 
   return (
     <div className="flex min-h-screen flex-col bg-neutral-100">
       <Navbar
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
@@ -435,10 +519,10 @@ export function CarAdvisor() {
         <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="max-w-4xl text-xl font-semibold tracking-tight text-[#0a1110] sm:text-2xl">
-              {activeMeta.title}
+              {pageMeta.title}
             </h1>
             <p className="mt-2 max-w-3xl text-xs leading-5 text-neutral-600 sm:text-sm">
-              {activeMeta.description}
+              {pageMeta.description}
             </p>
           </div>
           <div className="w-full rounded-md border border-neutral-200 bg-white px-4 py-3 text-xs text-neutral-600 shadow-sm sm:w-auto">
@@ -447,8 +531,7 @@ export function CarAdvisor() {
           </div>
         </header>
 
-        {activeTab === "recommendations" ? (
-          <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
             <form
               onSubmit={handleSubmit}
               className="h-fit rounded-md border border-neutral-200 bg-white p-3 shadow-sm"
@@ -456,7 +539,7 @@ export function CarAdvisor() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <h2 className="text-sm font-semibold">Tercihler</h2>
-                  <p className="mt-1 text-[11px] text-neutral-600">Filtreler API üzerinden çalışır.</p>
+                  <p className="mt-1 text-[11px] text-neutral-600">Bütçe ve kullanım önceliklerini seç.</p>
                 </div>
                 <button
                   type="button"
@@ -652,18 +735,22 @@ export function CarAdvisor() {
 
             <RecommendationResults
               data={data}
-              recommendations={searchedRecommendations}
+              recommendations={uniqueRecommendations}
               searchQuery={searchQuery}
               error={error}
+              authNotice={authNotice}
               isLoading={isLoading}
-              showWeights={showWeights}
-              onToggleWeights={() => setShowWeights((current) => !current)}
-              priorities={preferences.priorities}
+              isLoadingMore={isLoadingMore}
               favoriteIds={favoriteIds}
+              comparisonIds={comparisonIds}
+              pendingComparisonId={pendingComparisonId}
+              comparisonNotice={comparisonNotice}
               onToggleFavorite={toggleFavorite}
+              onToggleComparison={handleToggleComparison}
               likeCounts={likeCounts}
               likedIds={likedIds}
               onToggleLike={handleToggleLike}
+              onLoadMore={loadMoreResults}
             />
 
             <PendingApplyBar
@@ -673,18 +760,6 @@ export function CarAdvisor() {
               onApply={applyCurrentPreferences}
             />
           </div>
-        ) : (
-          <SecondaryPanel
-            activeTab={activeTab}
-            recommendations={searchedRecommendations}
-            favorites={favoriteRecommendations}
-            favoriteIds={favoriteIds}
-            sliderDomain={sliderDomain}
-            onTabChange={setActiveTab}
-            onReset={resetPreferences}
-            onToggleFavorite={toggleFavorite}
-          />
-        )}
       </div>
     </div>
   );
@@ -695,58 +770,68 @@ function RecommendationResults({
   recommendations,
   searchQuery,
   error,
+  authNotice,
   isLoading,
-  showWeights,
-  priorities,
+  isLoadingMore,
   favoriteIds,
-  onToggleWeights,
+  comparisonIds,
+  pendingComparisonId,
+  comparisonNotice,
   onToggleFavorite,
+  onToggleComparison,
   likeCounts,
   likedIds,
   onToggleLike,
+  onLoadMore,
 }: {
   data: RecommendationResponse | null;
   recommendations: RecommendedCar[];
   searchQuery: string;
   error: string | null;
+  authNotice: string | null;
   isLoading: boolean;
-  showWeights: boolean;
-  priorities: Priority[];
+  isLoadingMore: boolean;
   favoriteIds: string[];
-  onToggleWeights: () => void;
+  comparisonIds: string[];
+  pendingComparisonId: string | null;
+  comparisonNotice: string | null;
   onToggleFavorite: (recommendation: RecommendedCar) => void;
+  onToggleComparison: (recommendation: RecommendedCar) => void;
   likeCounts: Record<string, number>;
   likedIds: Set<string>;
   onToggleLike: (vehicleId: string) => void;
+  onLoadMore: () => void;
 }) {
   const hasSearch = searchQuery.trim().length > 0;
+  const isRecommendedMode = data?.mode === "recommended";
+  const isBrowseMode = data?.mode === "browse";
+  const hasOnlyPriceFilter =
+    isBrowseMode &&
+    data &&
+    (data.appliedFilters.minPrice !== PRICE_MIN || data.appliedFilters.maxPrice !== PRICE_MAX);
 
   return (
     <section className="min-w-0 space-y-4">
       {error ? <ErrorState message={error} /> : null}
+      {authNotice ? <NoticeState message={authNotice} /> : null}
+      {comparisonNotice ? <NoticeState message={comparisonNotice} /> : null}
       {isLoading ? <LoadingState /> : null}
-      {!isLoading && data && data.totalMatches === 0 ? <EmptyState /> : null}
-      {!isLoading && data && data.totalMatches > 0 ? (
+      {!isLoading && data && data.totalMatches === 0 && !hasSearch ? <EmptyState /> : null}
+      {!isLoading && data && (data.totalMatches > 0 || hasSearch) ? (
         <>
           <div className="rounded-md border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Öneri listesi</h2>
-                <p className="mt-1 text-sm text-neutral-600">
-                  {hasSearch
-                    ? `"${searchQuery.trim()}" için ${recommendations.length} araç bulundu.`
-                    : `RPC fonksiyonundan dönen en iyi ${data.totalMatches} araç tek listede sıralandı.`}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={onToggleWeights}
-                className="inline-flex h-9 items-center justify-center rounded-md border border-neutral-200 px-3 text-xs font-semibold text-[#0a1110] transition hover:bg-neutral-50"
-              >
-                Ağırlıkları göster
-              </button>
+            <div>
+              <h2 className="text-lg font-semibold">Araç listesi</h2>
+              <p className="mt-1 text-sm text-neutral-600">
+                {hasSearch
+                  ? `"${searchQuery.trim()}" için ${recommendations.length} araç gösteriliyor.`
+                  : isRecommendedMode
+                    ? "Seçtiğin filtrelere göre en uygun 10 araç getirildi."
+                    : hasOnlyPriceFilter
+                      ? "Fiyat aralığındaki araçlar listeleniyor. Aşağıdan daha fazlasını yükleyebilirsin."
+                      : "Tüm araçlar listeleniyor. Aşağıdan daha fazlasını yükleyebilirsin."}
+              </p>
             </div>
-            {showWeights ? <WeightPanel priorities={priorities} /> : null}
           </div>
 
           {recommendations.length ? (
@@ -756,7 +841,10 @@ function RecommendationResults({
                   key={recommendation.car.id}
                   recommendation={recommendation}
                   isFavorite={favoriteIds.includes(recommendation.car.id)}
+                  isCompared={comparisonIds.includes(recommendation.car.id)}
+                  isComparisonPending={pendingComparisonId === recommendation.car.id}
                   onToggleFavorite={onToggleFavorite}
+                  onToggleComparison={onToggleComparison}
                   likeCount={likeCounts[recommendation.car.id] ?? 0}
                   isLiked={likedIds.has(recommendation.car.id)}
                   onToggleLike={onToggleLike}
@@ -772,10 +860,20 @@ function RecommendationResults({
             </div>
           )}
 
-          <p className="flex items-start gap-2 px-1 pb-4 text-xs leading-5 text-neutral-600">
-            <CircleHelp className="mt-0.5 h-4 w-4 shrink-0" />
-            Skor, sıralama ve fiyat kesişimi Supabase veritabanındaki arac_oner RPC fonksiyonundan gelir.
-          </p>
+          {data.hasMore && recommendations.length > 0 ? (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={isLoadingMore}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-neutral-200 bg-white px-4 text-sm font-semibold text-[#014636] transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:text-neutral-400"
+              >
+                {isLoadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Daha fazla yükle
+              </button>
+            </div>
+          ) : null}
+
         </>
       ) : null}
     </section>
@@ -1150,182 +1248,23 @@ function PriceRangeSlider({
   );
 }
 
-function SecondaryPanel({
-  activeTab,
-  recommendations,
-  favorites,
-  favoriteIds,
-  sliderDomain,
-  onTabChange,
-  onReset,
-  onToggleFavorite,
-}: {
-  activeTab: ActiveTab;
-  recommendations: RecommendedCar[];
-  favorites: RecommendedCar[];
-  favoriteIds: string[];
-  sliderDomain: PriceDomain;
-  onTabChange: (tab: ActiveTab) => void;
-  onReset: () => void;
-  onToggleFavorite: (recommendation: RecommendedCar) => void;
-}) {
-  if (activeTab === "comparisons") {
-    const comparisonItems = recommendations.slice(0, 3);
-
-    return (
-      <div className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold">İlk 3 adayı karşılaştır</h2>
-            <p className="mt-2 text-sm text-neutral-600">
-              Öneriler sekmesindeki güncel filtre sonuçlarından otomatik seçilir.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => onTabChange("recommendations")}
-            className="h-11 rounded-md bg-[#014636] px-4 text-sm font-semibold text-white"
-          >
-            Önerilere dön
-          </button>
-        </div>
-        {comparisonItems.length ? (
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[780px] border-separate border-spacing-0 text-sm">
-              <thead>
-                <tr className="text-left text-neutral-500">
-                  <th className="border-b border-neutral-200 py-3 pr-4 font-semibold">Kriter</th>
-                  {comparisonItems.map((item) => (
-                    <th key={item.car.id} className="border-b border-neutral-200 px-4 py-3 font-semibold">
-                      {item.car.make} {item.car.model}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  ["Eşleşme", ...comparisonItems.map((item) => `%${item.score}`)],
-                  ["Piyasa fiyatı", ...comparisonItems.map((item) => formatPriceRange(item.car))],
-                  ["Yıllık gider", ...comparisonItems.map((item) => formatMoney(item.car.avgAnnualCostTry))],
-                  ["Model yılı", ...comparisonItems.map((item) => formatYearRange(item.car))],
-                  ["KM aralığı", ...comparisonItems.map((item) => formatKmRange(item.car))],
-                  ["Güç", ...comparisonItems.map((item) => `${item.car.powerHp} hp`)],
-                ].map((row) => (
-                  <tr key={row[0]}>
-                    {row.map((cell, index) => (
-                      <td
-                        key={`${row[0]}-${index}`}
-                        className={`border-b border-neutral-100 py-3 ${index === 0 ? "pr-4 font-semibold" : "px-4"}`}
-                      >
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyTabState title="Karşılaştırma için önce öneri üret" onClick={() => onTabChange("recommendations")} />
-        )}
-      </div>
-    );
-  }
-
-  if (activeTab === "favorites") {
-    return (
-      <div className="space-y-4">
-        <div className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
-          <h2 className="text-xl font-semibold">Favori araçlar</h2>
-          <p className="mt-2 text-sm text-neutral-600">
-            Kartlardaki kalp ikonuna basınca araçlar burada görünür.
-          </p>
-        </div>
-        {favorites.length ? (
-          <div className="grid gap-3 min-[900px]:grid-cols-2 min-[1180px]:grid-cols-3">
-            {favorites.map((item) => (
-              <CarCard
-                key={item.car.id}
-                recommendation={item}
-                isFavorite={favoriteIds.includes(item.car.id)}
-                onToggleFavorite={onToggleFavorite}
-                likeCount={0}
-                isLiked={false}
-                onToggleLike={() => {}}
-              />
-            ))}
-          </div>
-        ) : (
-          <EmptyTabState title="Henüz favori yok" onClick={() => onTabChange("recommendations")} />
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <div className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold">Fiyat ölçeği</h2>
-        <p className="mt-3 text-sm leading-6 text-neutral-600">
-          Görünür slider aralığı{" "}
-          <span className="font-semibold text-[#014636]">
-            {formatMoney(sliderDomain.min)} - {formatMoney(sliderDomain.max)}
-          </span>
-          . Aralık daraldıkça slider otomatik yakınlaşır, uçtan dışarı sürükleyince tekrar genişler.
-        </p>
-      </div>
-      <div className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold">Demo veri</h2>
-        <p className="mt-3 text-sm leading-6 text-neutral-600">
-          Fiyatlar temsili. Gerçek ürünleşmede bu JSON kaynağı ilan API verisi veya güncel veri deposuyla değiştirilecek.
-        </p>
-      </div>
-      <div className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold">Tercihleri sıfırla</h2>
-        <p className="mt-3 text-sm leading-6 text-neutral-600">
-          Başlangıç bütçesine ve varsayılan önceliklere geri döner.
-        </p>
-        <button
-          type="button"
-          onClick={onReset}
-          className="mt-4 h-11 rounded-md bg-[#014636] px-4 text-sm font-semibold text-white"
-        >
-          Sıfırla
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function EmptyTabState({ title, onClick }: { title: string; onClick: () => void }) {
-  return (
-    <div className="rounded-md border border-dashed border-neutral-300 bg-white p-8 text-center shadow-sm">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-neutral-600">
-        Önce öneri listesinden birkaç adayı inceleyip favori ekleyebilir veya filtreleri güncelleyebilirsin.
-      </p>
-      <button
-        type="button"
-        onClick={onClick}
-        className="mt-5 h-11 rounded-md bg-[#014636] px-4 text-sm font-semibold text-white"
-      >
-        Önerilere git
-      </button>
-    </div>
-  );
-}
-
 function CarCard({
   recommendation,
   isFavorite,
+  isCompared,
+  isComparisonPending,
   onToggleFavorite,
+  onToggleComparison,
   likeCount,
   isLiked,
   onToggleLike,
 }: {
   recommendation: RecommendedCar;
   isFavorite: boolean;
+  isCompared: boolean;
+  isComparisonPending: boolean;
   onToggleFavorite: (recommendation: RecommendedCar) => void;
+  onToggleComparison: (recommendation: RecommendedCar) => void;
   likeCount: number;
   isLiked: boolean;
   onToggleLike: (vehicleId: string) => void;
@@ -1346,9 +1285,27 @@ function CarCard({
         </div>
         <div className="relative z-10 flex shrink-0 flex-col items-end gap-1.5">
           <div className="rounded bg-[#014636] px-2 py-0.5 text-xs font-bold text-white">
-            %{recommendation.score}
+            {recommendation.score === null ? "Liste" : `%${recommendation.score}`}
           </div>
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onToggleComparison(recommendation)}
+              disabled={isComparisonPending}
+              className={`flex h-7 w-7 items-center justify-center rounded-full border transition ${
+                isCompared
+                  ? "border-amber-300 bg-amber-50 text-amber-700"
+                  : "border-neutral-200 bg-white text-neutral-500 hover:border-amber-300 hover:text-amber-700"
+              }`}
+              aria-label={
+                isCompared
+                  ? `${car.make} ${car.model} karşılaştırmadan çıkar`
+                  : `${car.make} ${car.model} karşılaştırmaya ekle`
+              }
+              title={isCompared ? "Karşılaştırmadan çıkar" : "Karşılaştırmaya ekle"}
+            >
+              {isComparisonPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Grid2X2 className="h-3.5 w-3.5" />}
+            </button>
             <button
               type="button"
               onClick={() => onToggleLike(car.id)}
@@ -1405,7 +1362,7 @@ function CarCard({
         <div className="mt-1.5 h-1.5 rounded-full bg-neutral-200">
           <div
             className="h-1.5 rounded-full bg-[#014636]"
-            style={{ width: `${recommendation.score}%` }}
+            style={{ width: `${recommendation.score ?? 100}%` }}
           />
         </div>
       </div>
@@ -1576,39 +1533,13 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function WeightPanel({ priorities }: { priorities: Priority[] }) {
-  const activeLabels = priorities
-    .map((priority) => priorityOptions.find((option) => option.id === priority)?.label)
-    .filter(Boolean);
-
-  return (
-    <div className="mt-5 rounded-md border border-emerald-100 bg-[#f3faf5] p-4">
-      <div className="text-sm font-semibold text-[#014636]">Aktif karar ağırlıkları</div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {(activeLabels.length ? activeLabels : ["Varsayılan denge"]).map((label) => (
-          <span
-            key={label}
-            className="rounded-full border border-emerald-100 bg-white px-3 py-1 text-xs font-semibold text-[#014636]"
-          >
-            {label}
-          </span>
-        ))}
-      </div>
-      <p className="mt-3 text-sm leading-6 text-neutral-600">
-        Bu prototipte seçilen her öncelik eşit ağırlıkla puanlanır. Sonraki adımda her öncelik için ayrı yüzde
-        sürgüsü eklenebilir.
-      </p>
-    </div>
-  );
-}
-
 function LoadingState() {
   return (
     <div className="flex min-h-80 items-center justify-center rounded-md border border-neutral-200 bg-white p-6 shadow-sm">
       <div className="text-center">
         <Loader2 className="mx-auto h-8 w-8 animate-spin text-[#014636]" />
-        <p className="mt-3 font-semibold">Araçlar puanlanıyor</p>
-        <p className="mt-1 text-sm text-neutral-600">Bütçe, filtreler ve öncelikler birlikte değerlendiriliyor.</p>
+        <p className="mt-3 font-semibold">Araçlar hazırlanıyor</p>
+        <p className="mt-1 text-sm text-neutral-600">Seçimlerine uygun liste güncelleniyor.</p>
       </div>
     </div>
   );
@@ -1631,6 +1562,18 @@ function ErrorState({ message }: { message: string }) {
       <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
       <div>
         <h2 className="font-semibold">Bir şey ters gitti</h2>
+        <p className="mt-1 text-sm">{message}</p>
+      </div>
+    </div>
+  );
+}
+
+function NoticeState({ message }: { message: string }) {
+  return (
+    <div className="flex gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-amber-950">
+      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+      <div>
+        <h2 className="font-semibold">Giriş gerekli</h2>
         <p className="mt-1 text-sm">{message}</p>
       </div>
     </div>
@@ -1742,34 +1685,6 @@ function getUniqueRecommendations(data: RecommendationResponse | null) {
   return data?.recommendations ?? [];
 }
 
-function filterRecommendationsByQuery(recommendations: RecommendedCar[], query: string) {
-  const trimmed = query.trim().toLocaleLowerCase("tr-TR");
-
-  if (!trimmed) return recommendations;
-
-  return recommendations.filter(({ car }) =>
-    `${car.make} ${car.model} ${car.trimLevel} ${car.segment}`.toLocaleLowerCase("tr-TR").includes(trimmed),
-  );
-}
-
-function getFavoriteRecommendations(
-  favoriteIds: string[],
-  currentRecommendations: RecommendedCar[],
-  favoriteItems: Record<string, RecommendedCar>,
-) {
-  const currentById = new Map(currentRecommendations.map((recommendation) => [recommendation.car.id, recommendation]));
-
-  return favoriteIds
-    .map((carId) => {
-      const currentRecommendation = currentById.get(carId);
-
-      if (currentRecommendation) return currentRecommendation;
-
-      return favoriteItems[carId] ?? null;
-    })
-    .filter((item): item is RecommendedCar => Boolean(item));
-}
-
 function getCarImage(car: RecommendedVehicle) {
   return car.imageUrl ?? carImages.fallback;
 }
@@ -1822,7 +1737,14 @@ function parseNumberInput(value: string) {
   return Number.isFinite(numericValue) ? numericValue : PRICE_MIN;
 }
 
-function toRecommendationPayload(preferences: RecommendationRequest) {
+function toRecommendationPayload(
+  preferences: RecommendationRequest,
+  options: {
+    page: number;
+    pageSize: number;
+    searchQuery: string;
+  },
+) {
   return {
     minBudget: preferences.minPrice,
     maxBudget: preferences.maxPrice,
@@ -1831,6 +1753,9 @@ function toRecommendationPayload(preferences: RecommendationRequest) {
     fuelType: preferences.fuelTypes[0],
     transmission: preferences.transmission === "any" ? undefined : preferences.transmission,
     minSeats: preferences.minSeats > 0 ? preferences.minSeats : undefined,
+    page: options.page,
+    pageSize: options.pageSize,
+    searchQuery: options.searchQuery || undefined,
   };
 }
 
