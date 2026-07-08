@@ -7,7 +7,7 @@ import { ArrowLeft, Loader2, Pencil, Trash2 } from "lucide-react";
 import type { BlogPostRow } from "@/app/api/blog/route";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { BlogEditorModal } from "./blog-editor-modal";
-import { Navbar } from "./navbar";
+
 
 export function BlogDetailPage({ slug }: { slug: string }) {
   const router = useRouter();
@@ -57,16 +57,15 @@ export function BlogDetailPage({ slug }: { slug: string }) {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-100">
-      <Navbar />
-      <main className="mx-auto w-full max-w-4xl px-3 py-4 sm:px-5">
+    <>
+      <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-5">
         <Link href="/blog" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-[#014636]">
           <ArrowLeft className="h-4 w-4" />
           Bloga dön
         </Link>
 
         {isLoading || isAdminLoading ? (
-          <div className="flex min-h-72 items-center justify-center rounded-md border border-neutral-200 bg-white">
+          <div className="flex min-h-72 items-center justify-center rounded-md border border-neutral-300 bg-white">
             <Loader2 className="h-6 w-6 animate-spin text-[#014636]" />
           </div>
         ) : error || !post ? (
@@ -74,7 +73,7 @@ export function BlogDetailPage({ slug }: { slug: string }) {
             {error ?? "Blog bulunamadı."}
           </div>
         ) : (
-          <article className="overflow-hidden rounded-md border border-neutral-200 bg-white shadow-sm">
+          <article className="overflow-hidden rounded-md border border-neutral-300 bg-white shadow-sm">
             {post.cover_image_url ? (
               <div
                 className="aspect-[16/7] bg-neutral-100 bg-cover bg-center"
@@ -94,7 +93,7 @@ export function BlogDetailPage({ slug }: { slug: string }) {
                     <button
                       type="button"
                       onClick={() => setIsEditorOpen(true)}
-                      className="inline-flex h-9 items-center gap-2 rounded-md border border-neutral-200 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                      className="inline-flex h-9 items-center gap-2 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
                     >
                       <Pencil className="h-4 w-4" />
                       Düzenle
@@ -123,7 +122,7 @@ export function BlogDetailPage({ slug }: { slug: string }) {
           onSaved={(nextPost) => setPost(nextPost)}
         />
       </main>
-    </div>
+    </>
   );
 }
 

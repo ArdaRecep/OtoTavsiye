@@ -7,6 +7,8 @@ import {
   MessageCircle,
   Send,
   Trash2,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import {
@@ -27,6 +29,9 @@ type CommentData = {
     username: string;
     avatar_url: string | null;
   };
+  likeCount: number;
+  dislikeCount: number;
+  userInteraction: "like" | "dislike" | null;
   replies: CommentData[];
 };
 
@@ -41,6 +46,7 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"popular" | "newest" | "oldest">("popular");
   const [currentUserId, setCurrentUserId] = useState("");
   const [currentUserName, setCurrentUserName] = useState("");
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null);
@@ -111,6 +117,83 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
     await fetchComments();
   }
 
+  function updateCommentState(commentId: string, updater: (c: CommentData) => CommentData) {
+    setComments((current) => {
+      return current.map(function mapComment(c): CommentData {
+        if (c.id === commentId) {
+          return updater({ ...c });
+        }
+        if (c.replies && c.replies.length > 0) {
+          return { ...c, replies: c.replies.map(mapComment) };
+        }
+        return c;
+      });
+    });
+  }
+
+  async function handleToggleInteraction(commentId: string, action: "like" | "dislike") {
+    if (!currentUserId) {
+      setNotice("Etkileşimde bulunmak için giriş yapmalısın.");
+      setIsAuthOpen(true);
+      return;
+    }
+
+    let found = false;
+    function findComment(list: CommentData[]) {
+      for (const c of list) {
+        if (c.id === commentId) {
+          found = true;
+          return;
+        }
+        if (c.replies) findComment(c.replies);
+      }
+    }
+    findComment(comments);
+    
+    if (!found) return;
+
+    updateCommentState(commentId, (c) => {
+      let likeCount = c.likeCount || 0;
+      let dislikeCount = c.dislikeCount || 0;
+      let userInteraction = c.userInteraction;
+
+      if (userInteraction === action) {
+        userInteraction = null;
+        if (action === "like") likeCount--;
+        if (action === "dislike") dislikeCount--;
+      } else {
+        if (userInteraction === "like") likeCount--;
+        if (userInteraction === "dislike") dislikeCount--;
+        userInteraction = action;
+        if (action === "like") likeCount++;
+        if (action === "dislike") dislikeCount++;
+      }
+
+      return { ...c, likeCount, dislikeCount, userInteraction };
+    });
+
+    try {
+      const response = await fetch("/api/comment-interactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commentId, userId: currentUserId, action }),
+      });
+
+      if (!response.ok) throw new Error("Etkileşim kaydedilemedi.");
+
+      const result = await response.json();
+      
+      updateCommentState(commentId, (c) => ({
+        ...c,
+        likeCount: result.likeCount,
+        dislikeCount: result.dislikeCount,
+        userInteraction: result.userInteraction,
+      }));
+    } catch {
+      await fetchComments();
+    }
+  }
+
   async function handleAuthSuccess(user: UserInfo) {
     setCurrentUserId(user.id);
     setCurrentUserName(user.username);
@@ -146,12 +229,30 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
   }
 
   return (
-    <section className="mt-5 rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center gap-3">
-        <MessageCircle className="h-6 w-6 text-[#014636]" />
-        <h2 className="text-xl font-semibold">
-          Yorumlar{total > 0 ? ` (${total})` : ""}
-        </h2>
+    <section className="mt-5 rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <MessageCircle className="h-6 w-6 text-[#014636]" />
+          <h2 className="text-xl font-semibold">
+            Yorumlar{total > 0 ? ` (${total})` : ""}
+          </h2>
+        </div>
+
+        {total > 0 && (
+          <div className="flex items-center gap-2 text-sm">
+            <label htmlFor="sort-comments" className="font-medium text-neutral-600">Sırala:</label>
+            <select
+              id="sort-comments"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as "popular" | "newest" | "oldest")}
+              className="rounded-md border border-neutral-300 bg-white py-1.5 pl-3 pr-8 text-sm text-neutral-700 shadow-sm focus:border-[#014636] focus:outline-none focus:ring-1 focus:ring-[#014636]"
+            >
+              <option value="popular">En popüler</option>
+              <option value="newest">En yeni</option>
+              <option value="oldest">En eski</option>
+            </select>
+          </div>
+        )}
       </div>
 
       <div className="mt-6">
@@ -183,7 +284,23 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
             </p>
           </div>
         ) : (
-          comments.map((comment) => (
+          [...comments]
+            .sort((a, b) => {
+              if (sortBy === "newest") {
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+              }
+              if (sortBy === "oldest") {
+                return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+              }
+              
+              const scoreA = (a.likeCount || 0) + (a.replies?.length || 0);
+              const scoreB = (b.likeCount || 0) + (b.replies?.length || 0);
+              
+              if (scoreB !== scoreA) return scoreB - scoreA;
+              
+              return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            })
+            .map((comment) => (
             <CommentThread
               key={comment.id}
               comment={comment}
@@ -198,6 +315,7 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
                 handleSubmitComment(content, parentId, clearDraft)
               }
               onDeleteComment={handleDeleteComment}
+              onToggleInteraction={handleToggleInteraction}
             />
           ))
         )}
@@ -223,6 +341,7 @@ function CommentThread({
   onReplyClick,
   onSubmitReply,
   onDeleteComment,
+  onToggleInteraction,
 }: {
   comment: CommentData;
   currentUserId: string;
@@ -232,6 +351,7 @@ function CommentThread({
   onReplyClick: (id: string) => void;
   onSubmitReply: (content: string, parentId: string, clearDraft: () => void) => Promise<void>;
   onDeleteComment: (commentId: string) => void;
+  onToggleInteraction: (commentId: string, action: "like" | "dislike") => void;
 }) {
   return (
     <div className="border-b border-neutral-100 last:border-0">
@@ -242,6 +362,7 @@ function CommentThread({
         onReplyClick={() => onReplyClick(comment.id)}
         onDelete={() => onDeleteComment(comment.id)}
         isReplyOpen={replyingTo === comment.id}
+        onToggleInteraction={onToggleInteraction}
       />
 
       {comment.replies.length > 0 && (
@@ -254,6 +375,7 @@ function CommentThread({
               canDelete={isAdmin}
               onDelete={() => onDeleteComment(reply.id)}
               isReply
+              onToggleInteraction={onToggleInteraction}
             />
           ))}
         </div>
@@ -288,6 +410,7 @@ function CommentBubble({
   onReplyClick,
   onDelete,
   isReplyOpen,
+  onToggleInteraction,
 }: {
   comment: CommentData;
   isOwn: boolean;
@@ -296,13 +419,14 @@ function CommentBubble({
   onReplyClick?: () => void;
   onDelete?: () => void;
   isReplyOpen?: boolean;
+  onToggleInteraction: (commentId: string, action: "like" | "dislike") => void;
 }) {
   const username = comment.user?.username ?? "Anonim";
   const avatarUrl = comment.user?.avatar_url;
   const initial = username.charAt(0).toUpperCase();
 
   return (
-    <div className={`flex gap-3 ${isReply ? "py-3" : "py-4"}`}>
+    <div id={`comment-${comment.id}`} className={`flex gap-3 ${isReply ? "py-3" : "py-4"}`}>
       {avatarUrl ? (
         <img
           src={avatarUrl}
@@ -338,6 +462,30 @@ function CommentBubble({
           {comment.content}
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5 border-r border-neutral-200 pr-3">
+            <button
+              type="button"
+              onClick={() => onToggleInteraction(comment.id, "like")}
+              className={`flex items-center gap-1 text-xs font-semibold transition ${
+                comment.userInteraction === "like" ? "text-emerald-600" : "text-neutral-500 hover:text-emerald-600"
+              }`}
+              aria-label="Beğen"
+            >
+              <ThumbsUp className={`h-3 w-3 ${comment.userInteraction === "like" ? "fill-current" : ""}`} />
+              {comment.likeCount > 0 && <span>{comment.likeCount}</span>}
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleInteraction(comment.id, "dislike")}
+              className={`flex items-center gap-1 text-xs font-semibold transition ${
+                comment.userInteraction === "dislike" ? "text-red-500" : "text-neutral-500 hover:text-red-500"
+              }`}
+              aria-label="Beğenme"
+            >
+              <ThumbsDown className={`h-3 w-3 ${comment.userInteraction === "dislike" ? "fill-current" : ""}`} />
+              {comment.dislikeCount > 0 && <span>{comment.dislikeCount}</span>}
+            </button>
+          </div>
           {!isReply && onReplyClick && (
             <button
               type="button"
@@ -422,7 +570,7 @@ function CommentForm({
           maxLength={1000}
           required
           rows={isCompact ? 2 : 3}
-          className="w-full resize-none rounded-md border border-neutral-200 bg-white p-3 pr-12 text-sm leading-6 outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+          className="w-full resize-none rounded-md border border-neutral-300 bg-white p-3 pr-12 text-sm leading-6 outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
         />
         <button
           type="submit"

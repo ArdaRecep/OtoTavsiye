@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   title: "HangiAraç",
   description: "Bütçene ve kullanım tarzına göre araç seçeneklerini keşfet.",
   icons: {
-    icon: "/logo.svg",
+    icon: "/hangiArac.jpeg",
   },
 };
 

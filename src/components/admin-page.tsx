@@ -19,7 +19,7 @@ import {
 import type { BlogPostRow } from "@/app/api/blog/route";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { BlogEditorModal } from "./blog-editor-modal";
-import { Navbar } from "./navbar";
+
 
 const COMMENTS_PER_PAGE = 8;
 
@@ -164,10 +164,9 @@ export function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-100">
-      <Navbar />
+    <>
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 py-4 sm:px-5">
-        <header className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
+        <header className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2 text-[#014636]">
@@ -193,7 +192,7 @@ export function AdminPage() {
         </header>
 
         {isAdminLoading || isDataLoading ? (
-          <div className="flex min-h-72 items-center justify-center rounded-md border border-neutral-200 bg-white">
+          <div className="flex min-h-72 items-center justify-center rounded-md border border-neutral-300 bg-white">
             <Loader2 className="h-6 w-6 animate-spin text-[#014636]" />
           </div>
         ) : !userId ? (
@@ -218,7 +217,7 @@ export function AdminPage() {
               />
             </section>
 
-            <section className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
+            <section className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">Bloglar</h2>
@@ -238,7 +237,7 @@ export function AdminPage() {
                       <div className="flex flex-wrap gap-2">
                         <Link
                           href={`/blog/${post.slug}`}
-                          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-200 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
                         >
                           <Eye className="h-4 w-4" />
                           Gör
@@ -246,7 +245,7 @@ export function AdminPage() {
                         <button
                           type="button"
                           onClick={() => setEditingPost(post)}
-                          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-200 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
                         >
                           <Pencil className="h-4 w-4" />
                           Düzenle
@@ -254,7 +253,7 @@ export function AdminPage() {
                         <button
                           type="button"
                           onClick={() => togglePostStatus(post)}
-                          className="h-9 rounded-md border border-neutral-200 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                          className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
                         >
                           {post.status === "published" ? "Taslağa al" : "Yayınla"}
                         </button>
@@ -275,7 +274,7 @@ export function AdminPage() {
               </div>
             </section>
 
-            <section className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
+            <section className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
@@ -292,7 +291,7 @@ export function AdminPage() {
                     value={commentSearch}
                     onChange={(event) => setCommentSearch(event.target.value)}
                     placeholder="Yorum, kullanıcı veya araç ara"
-                    className="h-10 w-full rounded-md border border-neutral-200 pl-9 pr-3 text-sm outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+                    className="h-10 w-full rounded-md border border-neutral-300 pl-9 pr-3 text-sm outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
                   />
                 </div>
               </div>
@@ -331,7 +330,7 @@ export function AdminPage() {
                     type="button"
                     onClick={() => setCommentPage((page) => Math.max(1, page - 1))}
                     disabled={commentPage === 1}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-200 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <ChevronLeft className="h-4 w-4" />
                     Önceki
@@ -343,7 +342,7 @@ export function AdminPage() {
                     type="button"
                     onClick={() => setCommentPage((page) => Math.min(totalCommentPages, page + 1))}
                     disabled={commentPage === totalCommentPages}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-200 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Sonraki
                     <ChevronRight className="h-4 w-4" />
@@ -365,13 +364,13 @@ export function AdminPage() {
           onSaved={handleSavedPost}
         />
       </main>
-    </div>
+    </>
   );
 }
 
 function StatCard({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-4 shadow-sm">
+    <div className="rounded-md border border-neutral-300 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-semibold text-neutral-500">{label}</span>
         <span className="text-[#014636]">{icon}</span>

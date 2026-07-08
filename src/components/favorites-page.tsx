@@ -6,7 +6,7 @@ import { ChevronRight, Grid2X2, Heart, Loader2, Trash2 } from "lucide-react";
 import { getComparisonItemIds, toggleComparisonItem } from "@/lib/compare-storage";
 import type { RecommendationResponse, RecommendedCar, RecommendedVehicle } from "@/lib/types";
 import { getStoredUserId } from "@/lib/user-identity";
-import { Navbar } from "./navbar";
+
 
 const fallbackImage =
   "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=900&q=80";
@@ -94,10 +94,9 @@ export function FavoritesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-100">
-      <Navbar />
+    <>
       <main className="mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-3 py-4 sm:px-5">
-        <header className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
+        <header className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2 text-[#014636]">
             <Heart className="h-5 w-5" />
             <span className="text-xs font-bold uppercase tracking-[0.14em]">Favoriler</span>
@@ -109,7 +108,7 @@ export function FavoritesPage() {
         </header>
 
         {isLoading ? (
-          <div className="flex min-h-72 items-center justify-center rounded-md border border-neutral-200 bg-white">
+          <div className="flex min-h-72 items-center justify-center rounded-md border border-neutral-300 bg-white">
             <Loader2 className="h-6 w-6 animate-spin text-[#014636]" />
           </div>
         ) : !userId ? (
@@ -150,7 +149,7 @@ export function FavoritesPage() {
           />
         )}
       </main>
-    </div>
+    </>
   );
 }
 
@@ -170,9 +169,9 @@ function FavoriteCard({
   const car = item.car;
 
   return (
-    <article className="relative flex min-h-full flex-col rounded-md border border-neutral-200 bg-white p-3 shadow-sm transition hover:border-[#014636]/30 hover:shadow-md">
+    <article className="relative flex min-h-full flex-col rounded-md border border-neutral-300 bg-white p-3 shadow-sm transition hover:border-[#014636]/30 hover:shadow-md">
       <div
-        className="aspect-[16/9] rounded-md border border-neutral-200 bg-neutral-100"
+        className="aspect-[16/9] rounded-md border border-neutral-300 bg-neutral-100"
         style={{
           backgroundImage: `linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.18)), url(${car.imageUrl ?? fallbackImage})`,
           backgroundPosition: "center",
@@ -197,7 +196,7 @@ function FavoriteCard({
             className={`flex h-8 w-8 items-center justify-center rounded-full border transition ${
               isCompared
                 ? "border-amber-300 bg-amber-50 text-amber-700"
-                : "border-neutral-200 text-neutral-500 hover:border-amber-300 hover:text-amber-700"
+                : "border-neutral-300 text-neutral-500 hover:border-amber-300 hover:text-amber-700"
             }`}
             aria-label={isCompared ? `${car.make} ${car.model} karşılaştırmadan çıkar` : `${car.make} ${car.model} karşılaştır`}
             title={isCompared ? "Karşılaştırmadan çıkar" : "Karşılaştırmaya ekle"}
@@ -207,7 +206,7 @@ function FavoriteCard({
           <button
             type="button"
             onClick={onRemove}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-300 text-neutral-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
             aria-label={`${car.make} ${car.model} favorilerden çıkar`}
           >
             <Trash2 className="h-4 w-4" />
@@ -257,7 +256,7 @@ function EmptyState({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white px-2 py-1.5">
+    <div className="rounded-md border border-neutral-300 bg-white px-2 py-1.5">
       <div className="text-[10px] text-neutral-500">{label}</div>
       <div className="mt-0.5 break-words text-xs font-bold text-neutral-950">{value}</div>
     </div>

@@ -7,6 +7,7 @@ import {
   CarFront,
   Check,
   ChevronRight,
+  ChevronDown,
   Fuel,
   Grid2X2,
   Heart,
@@ -60,7 +61,7 @@ const initialSliderDomain: PriceDomain = {
   max: PRICE_MAX,
 };
 
-import { Navbar } from "./navbar";
+
 
 const priorityOptions: { id: Priority; label: string }[] = [
   { id: "safety", label: "Güvenlik" },
@@ -146,6 +147,7 @@ export function CarAdvisor() {
   const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
   const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
+  const [isMobileFiltersExpanded, setIsMobileFiltersExpanded] = useState(false);
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const userIdRef = useRef("");
 
@@ -170,6 +172,17 @@ export function CarAdvisor() {
     });
   }, []);
 
+  // Listen for search changes from the shared navbar
+  useEffect(() => {
+    function handleNavbarSearch(event: Event) {
+      const value = (event as CustomEvent<string>).detail;
+      setSearchQuery(value);
+    }
+
+    window.addEventListener("navbar-search-change", handleNavbarSearch);
+    return () => window.removeEventListener("navbar-search-change", handleNavbarSearch);
+  }, []);
+
   async function initUserIfNeeded(): Promise<string> {
     if (userIdRef.current) return userIdRef.current;
     const user = await ensureUser();
@@ -189,33 +202,41 @@ export function CarAdvisor() {
       }),
     );
 
-    const nextCounts: Record<string, number> = { ...likeCounts };
-    const nextLiked = new Set(likedIds);
-    const nextFavorited = new Set(favoritedIds);
-
-    results.forEach((result, index) => {
-      if (result.status === "fulfilled") {
-        nextCounts[vehicleIds[index]] = result.value.likeCount ?? 0;
-        if (result.value.isLiked) {
-          nextLiked.add(vehicleIds[index]);
-        } else {
-          nextLiked.delete(vehicleIds[index]);
+    setLikeCounts((prevCounts) => {
+      const nextCounts = { ...prevCounts };
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          nextCounts[vehicleIds[index]] = result.value.likeCount ?? 0;
         }
-        if (result.value.isFavorite) {
-          nextFavorited.add(vehicleIds[index]);
-        } else {
-          nextFavorited.delete(vehicleIds[index]);
-        }
-      }
+      });
+      return nextCounts;
     });
 
-    setLikeCounts(nextCounts);
-    setLikedIds(nextLiked);
-    setFavoritedIds(nextFavorited);
+    setLikedIds((prevLiked) => {
+      const nextLiked = new Set(prevLiked);
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          if (result.value.isLiked) nextLiked.add(vehicleIds[index]);
+          else nextLiked.delete(vehicleIds[index]);
+        }
+      });
+      return nextLiked;
+    });
 
-    // Sync favoriteIds state with DB favorites
-    setFavoriteIds(Array.from(nextFavorited));
-  }, [likeCounts, likedIds, favoritedIds]);
+    setFavoritedIds((prevFavorited) => {
+      const nextFavorited = new Set(prevFavorited);
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          if (result.value.isFavorite) nextFavorited.add(vehicleIds[index]);
+          else nextFavorited.delete(vehicleIds[index]);
+        }
+      });
+      
+      // Sync favoriteIds state with DB favorites
+      setFavoriteIds(Array.from(nextFavorited));
+      return nextFavorited;
+    });
+  }, []);
 
   useEffect(() => {
     if (data?.recommendations.length) {
@@ -236,6 +257,20 @@ export function CarAdvisor() {
 
     setAuthNotice(null);
 
+    const wasLiked = likedIds.has(vehicleId);
+
+    // Optimistik olarak UI'ı hemen güncelle
+    setLikedIds((prev) => {
+      const next = new Set(prev);
+      if (wasLiked) next.delete(vehicleId);
+      else next.add(vehicleId);
+      return next;
+    });
+    setLikeCounts((prev) => ({
+      ...prev,
+      [vehicleId]: Math.max(0, (prev[vehicleId] || 0) + (wasLiked ? -1 : 1))
+    }));
+
     try {
       const userId = await initUserIfNeeded();
       const response = await fetch("/api/interactions", {
@@ -244,7 +279,7 @@ export function CarAdvisor() {
         body: JSON.stringify({ vehicleId, userId, action: "like" }),
       });
 
-      if (!response.ok) return;
+      if (!response.ok) throw new Error("Beğeni kaydedilemedi.");
 
       const result = await response.json();
       setLikeCounts((prev) => ({ ...prev, [vehicleId]: result.likeCount ?? 0 }));
@@ -258,7 +293,18 @@ export function CarAdvisor() {
         return next;
       });
     } catch {
-      setAuthNotice("Beğeni kaydedilemedi. Giriş durumunu kontrol edip tekrar deneyebilirsin.");
+      // Hata olursa geri al
+      setLikedIds((prev) => {
+        const next = new Set(prev);
+        if (wasLiked) next.add(vehicleId);
+        else next.delete(vehicleId);
+        return next;
+      });
+      setLikeCounts((prev) => ({
+        ...prev,
+        [vehicleId]: Math.max(0, (prev[vehicleId] || 0) + (wasLiked ? 1 : -1))
+      }));
+      setAuthNotice("Beğeni kaydedilemedi. Lütfen tekrar dene.");
     }
   }
 
@@ -509,12 +555,7 @@ export function CarAdvisor() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-neutral-100">
-      <Navbar
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-      />
-
+    <>
       <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-3 py-4 sm:px-5 lg:px-5">
         <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -525,7 +566,7 @@ export function CarAdvisor() {
               {pageMeta.description}
             </p>
           </div>
-          <div className="w-full rounded-md border border-neutral-200 bg-white px-4 py-3 text-xs text-neutral-600 shadow-sm sm:w-auto">
+          <div className="w-full rounded-md border border-neutral-300 bg-white px-4 py-3 text-xs text-neutral-600 shadow-sm sm:w-auto">
             <div className="text-sm font-bold text-[#0a1110]">{formattedBudget}</div>
             <div className="mt-0.5">Aktif fiyat aralığı</div>
           </div>
@@ -534,25 +575,40 @@ export function CarAdvisor() {
         <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
             <form
               onSubmit={handleSubmit}
-              className="h-fit rounded-md border border-neutral-200 bg-white p-3 shadow-sm"
+              className="h-fit rounded-md border border-neutral-300 bg-white p-3 shadow-sm"
             >
-              <div className="flex items-start justify-between gap-2">
+              <div 
+                className="flex items-center justify-between gap-2 cursor-pointer lg:cursor-default"
+                onClick={() => setIsMobileFiltersExpanded(!isMobileFiltersExpanded)}
+              >
                 <div>
-                  <h2 className="text-sm font-semibold">Tercihler</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-semibold">Tercihler</h2>
+                    <ChevronDown className={`h-4 w-4 lg:hidden transition-transform ${isMobileFiltersExpanded ? 'rotate-180' : ''}`} />
+                  </div>
                   <p className="mt-1 text-[11px] text-neutral-600">Bütçe ve kullanım önceliklerini seç.</p>
                 </div>
                 <button
                   type="button"
-                  onClick={resetPreferences}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-neutral-200 text-neutral-600 transition hover:bg-neutral-50"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    resetPreferences();
+                  }}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded border border-neutral-300 text-neutral-600 transition hover:bg-neutral-50"
                   aria-label="Filtreleri sıfırla"
                 >
                   <RefreshCw className="h-3 w-3" />
                 </button>
               </div>
 
-              <div className="mt-3 space-y-3.5">
-                <section className="space-y-2">
+              <div 
+                className={`grid transition-[grid-template-rows] duration-500 ease-in-out lg:!grid-rows-[1fr] ${
+                  isMobileFiltersExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                }`}
+              >
+                <div className="overflow-hidden">
+                  <div className="mt-3 space-y-3.5">
+                    <section className="space-y-2">
                   <Label
                     title="Fiyat aralığı"
                     value={`${formatShortMoney(sliderDomain.min)} - ${formatShortMoney(sliderDomain.max)}`}
@@ -609,7 +665,7 @@ export function CarAdvisor() {
                   <select
                     value=""
                     onChange={(event) => addExtraPriority(event.target.value)}
-                    className="h-9 w-full rounded-md border border-neutral-200 bg-white px-2.5 text-xs outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+                    className="h-9 w-full rounded-md border border-neutral-300 bg-white px-2.5 text-xs outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
                   >
                     <option value="">Seçiniz</option>
                     {extraPriorities.map((option) => (
@@ -671,7 +727,7 @@ export function CarAdvisor() {
 
                 <section className="space-y-2">
                   <Label title="Şanzıman" value={transmissionLabel(preferences.transmission)} />
-                  <div className="grid grid-cols-3 rounded-md border border-neutral-200 bg-neutral-50 p-1">
+                  <div className="grid grid-cols-3 rounded-md border border-neutral-300 bg-neutral-50 p-1">
                     {[
                       ["any", "Farketmez"],
                       ["automatic", "Otomatik"],
@@ -708,7 +764,7 @@ export function CarAdvisor() {
                         minSeats: Number(event.target.value),
                       }))
                     }
-                    className="h-9 w-full rounded-md border border-neutral-200 bg-white px-2.5 text-xs outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+                    className="h-9 w-full rounded-md border border-neutral-300 bg-white px-2.5 text-xs outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
                   >
                     <option value={0}>Farketmez</option>
                     <option value={2}>En az 2 koltuk</option>
@@ -717,6 +773,8 @@ export function CarAdvisor() {
                     <option value={7}>En az 7 koltuk</option>
                   </select>
                 </section>
+              </div>
+              </div>
               </div>
 
               <button
@@ -761,7 +819,7 @@ export function CarAdvisor() {
             />
           </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -819,7 +877,7 @@ function RecommendationResults({
       {!isLoading && data && data.totalMatches === 0 && !hasSearch ? <EmptyState /> : null}
       {!isLoading && data && (data.totalMatches > 0 || hasSearch) ? (
         <>
-          <div className="rounded-md border border-neutral-200 bg-white p-4 shadow-sm">
+          <div className="rounded-md border border-neutral-300 bg-white p-4 shadow-sm">
             <div>
               <h2 className="text-lg font-semibold">Araç listesi</h2>
               <p className="mt-1 text-sm text-neutral-600">
@@ -866,7 +924,7 @@ function RecommendationResults({
                 type="button"
                 onClick={onLoadMore}
                 disabled={isLoadingMore}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-neutral-200 bg-white px-4 text-sm font-semibold text-[#014636] transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:text-neutral-400"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 text-sm font-semibold text-[#014636] transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:text-neutral-400"
               >
                 {isLoadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Daha fazla yükle
@@ -1272,7 +1330,7 @@ function CarCard({
   const { car } = recommendation;
 
   return (
-    <div className="relative flex min-h-full flex-col rounded-md border border-neutral-200 bg-white p-2.5 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition hover:border-[#014636]/30 hover:shadow-md">
+    <div className="relative flex min-h-full flex-col rounded-md border border-neutral-300 bg-white p-2.5 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition hover:border-[#014636]/30 hover:shadow-md">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#014636]">
@@ -1284,18 +1342,20 @@ function CarCard({
           <p className="mt-0.5 text-[11px] leading-4 text-neutral-600">{car.trimLevel}</p>
         </div>
         <div className="relative z-10 flex shrink-0 flex-col items-end gap-1.5">
-          <div className="rounded bg-[#014636] px-2 py-0.5 text-xs font-bold text-white">
-            {recommendation.score === null ? "Liste" : `%${recommendation.score}`}
-          </div>
+          {recommendation.score !== null && (
+            <div className="rounded bg-[#014636] px-2 py-0.5 text-xs font-bold text-white">
+              %{recommendation.score}
+            </div>
+          )}
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => onToggleComparison(recommendation)}
               disabled={isComparisonPending}
-              className={`flex h-7 w-7 items-center justify-center rounded-full border transition ${
+              className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
                 isCompared
                   ? "border-amber-300 bg-amber-50 text-amber-700"
-                  : "border-neutral-200 bg-white text-neutral-500 hover:border-amber-300 hover:text-amber-700"
+                  : "border-neutral-300 bg-white text-neutral-500 hover:border-amber-300 hover:text-amber-700"
               }`}
               aria-label={
                 isCompared
@@ -1304,41 +1364,41 @@ function CarCard({
               }
               title={isCompared ? "Karşılaştırmadan çıkar" : "Karşılaştırmaya ekle"}
             >
-              {isComparisonPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Grid2X2 className="h-3.5 w-3.5" />}
+              {isComparisonPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Grid2X2 className="h-4 w-4" />}
             </button>
             <button
               type="button"
               onClick={() => onToggleLike(car.id)}
-              className={`flex h-7 items-center gap-1.5 rounded-full border px-2 transition ${
+              className={`flex h-9 items-center gap-1.5 rounded-full border px-3 transition ${
                 isLiked
-                  ? "border-blue-200 bg-blue-50 text-blue-600"
-                  : "border-neutral-200 bg-white text-neutral-500 hover:text-blue-600 hover:border-blue-200"
+                  ? "border-[#014636]/30 bg-emerald-50 text-[#014636]"
+                  : "border-neutral-300 bg-white text-neutral-500 hover:text-[#014636] hover:border-[#014636]/30"
               }`}
               aria-label={`${car.make} ${car.model} beğen`}
             >
-              <ThumbsUp className={`h-3.5 w-3.5 ${isLiked ? "fill-current" : ""}`} />
+              <ThumbsUp className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
               {likeCount > 0 && (
-                <span className="text-xs font-bold">{likeCount}</span>
+                <span className="text-[13px] font-bold">{likeCount}</span>
               )}
             </button>
             <button
               type="button"
               onClick={() => onToggleFavorite(recommendation)}
-              className={`flex h-7 w-7 items-center justify-center rounded-full border transition ${
+              className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
                 isFavorite
                   ? "border-[#014636] bg-[#014636] text-white"
-                  : "border-neutral-200 bg-white text-neutral-500 hover:text-[#014636]"
+                  : "border-neutral-300 bg-white text-neutral-500 hover:text-[#014636]"
               }`}
               aria-label={`${car.make} ${car.model} favori`}
             >
-              <Heart className={`h-3.5 w-3.5 ${isFavorite ? "fill-current" : ""}`} />
+              <Heart className={`h-4 w-4 ${isFavorite ? "fill-current" : ""}`} />
             </button>
           </div>
         </div>
       </div>
 
       <div
-        className="mt-2.5 aspect-[16/10] rounded-md border border-neutral-200 bg-neutral-100"
+        className="mt-2.5 aspect-[16/10] rounded-md border border-neutral-300 bg-neutral-100"
         style={{
           backgroundImage: `linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.18)), url(${getCarImage(car)})`,
           backgroundPosition: "center",
@@ -1414,7 +1474,7 @@ function NumberInput({
   return (
     <label className="block">
       <span className="text-xs text-neutral-600">{label}</span>
-      <div className="mt-1 flex h-9 overflow-hidden rounded-md border border-neutral-200 bg-white focus-within:border-[#014636] focus-within:ring-2 focus-within:ring-emerald-100">
+      <div className="mt-1 flex h-9 overflow-hidden rounded-md border border-neutral-300 bg-white focus-within:border-[#014636] focus-within:ring-2 focus-within:ring-emerald-100">
         <input
           type="text"
           inputMode="numeric"
@@ -1432,7 +1492,7 @@ function NumberInput({
           }}
           className="min-w-0 flex-1 px-1.5 text-xs font-semibold outline-none sm:px-2"
         />
-        <span className="flex w-7 items-center justify-center border-l border-neutral-200 text-xs font-semibold text-neutral-700 sm:w-8">
+        <span className="flex w-7 items-center justify-center border-l border-neutral-300 text-xs font-semibold text-neutral-700 sm:w-8">
           ₺
         </span>
       </div>
@@ -1458,7 +1518,7 @@ function PriorityButton({
       className={`flex min-h-10 w-full items-center gap-2.5 rounded-md border px-2.5 text-left text-xs font-semibold transition ${
         isActive
           ? "border-emerald-50 bg-[#eef7f0] text-[#0a1110]"
-          : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+          : "border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50"
       }`}
     >
       <span className="text-[#014636]">{icon}</span>
@@ -1490,7 +1550,7 @@ function CompactToggle({
       className={`rounded-md border px-2.5 py-1.5 text-left text-xs font-semibold transition ${
         isActive
           ? "border-[#014636] bg-[#eef7f0] text-[#014636]"
-          : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300"
+          : "border-neutral-300 bg-white text-neutral-700 hover:border-neutral-300"
       }`}
     >
       {children}
@@ -1526,7 +1586,7 @@ function Label({ title, value }: { title: string; value?: string }) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white px-2 py-1.5">
+    <div className="rounded-md border border-neutral-300 bg-white px-2 py-1.5">
       <div className="text-[10px] text-neutral-500">{label}</div>
       <div className="mt-0.5 break-words text-xs font-bold text-neutral-950">{value}</div>
     </div>
@@ -1535,7 +1595,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function LoadingState() {
   return (
-    <div className="flex min-h-80 items-center justify-center rounded-md border border-neutral-200 bg-white p-6 shadow-sm">
+    <div className="flex min-h-80 items-center justify-center rounded-md border border-neutral-300 bg-white p-6 shadow-sm">
       <div className="text-center">
         <Loader2 className="mx-auto h-8 w-8 animate-spin text-[#014636]" />
         <p className="mt-3 font-semibold">Araçlar hazırlanıyor</p>
@@ -1547,7 +1607,7 @@ function LoadingState() {
 
 function EmptyState() {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-6 shadow-sm">
+    <div className="rounded-md border border-neutral-300 bg-white p-6 shadow-sm">
       <h2 className="text-lg font-semibold">Bu filtrelerle eşleşme yok</h2>
       <p className="mt-2 text-sm leading-6 text-neutral-600">
         Bütçeyi biraz genişletmeyi, gövde/yakıt filtresini kaldırmayı veya koltuk sayısını düşürmeyi deneyebilirsin.

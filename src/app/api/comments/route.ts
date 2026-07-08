@@ -12,12 +12,16 @@ type CommentRow = {
     username: string;
     avatar_url: string | null;
   };
+  likeCount: number;
+  dislikeCount: number;
+  userInteraction: string | null;
 };
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const vehicleId = searchParams.get("vehicleId");
+    const currentUserId = searchParams.get("userId");
 
     if (!vehicleId) {
       return Response.json({ error: "vehicleId gerekli." }, { status: 400 });
@@ -26,7 +30,7 @@ export async function GET(request: NextRequest) {
     const supabase = createSupabaseServerClient();
     const { data, error } = await supabase
       .from("vehicle_comments")
-      .select("id, vehicle_id, parent_id, user_id, content, created_at, users:user_id(username, avatar_url)")
+      .select("id, vehicle_id, parent_id, user_id, content, created_at, users:user_id(username, avatar_url), comment_interactions(user_id, type)")
       .eq("vehicle_id", vehicleId)
       .order("created_at", { ascending: true });
 
@@ -37,15 +41,27 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const rows = (data ?? []).map((row: Record<string, unknown>) => ({
-      id: row.id as string,
-      vehicle_id: row.vehicle_id as string,
-      parent_id: row.parent_id as string | null,
-      user_id: row.user_id as string,
-      content: row.content as string,
-      created_at: row.created_at as string,
-      user: row.users as { username: string; avatar_url: string | null },
-    })) as CommentRow[];
+    const rows = (data ?? []).map((row: Record<string, unknown>) => {
+      const interactions = (row.comment_interactions as any[]) || [];
+      const likeCount = interactions.filter(i => i.type === "like").length;
+      const dislikeCount = interactions.filter(i => i.type === "dislike").length;
+      const userInteraction = currentUserId 
+        ? interactions.find(i => i.user_id === currentUserId)?.type || null 
+        : null;
+
+      return {
+        id: row.id as string,
+        vehicle_id: row.vehicle_id as string,
+        parent_id: row.parent_id as string | null,
+        user_id: row.user_id as string,
+        content: row.content as string,
+        created_at: row.created_at as string,
+        user: row.users as { username: string; avatar_url: string | null },
+        likeCount,
+        dislikeCount,
+        userInteraction,
+      };
+    }) as CommentRow[];
 
     // Build thread structure: root comments with their replies
     const rootComments = rows.filter((row) => !row.parent_id);

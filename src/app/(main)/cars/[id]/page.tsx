@@ -15,7 +15,7 @@ import {
 import type { ReactNode } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { CommentSection } from "@/components/comment-section";
-import { Navbar } from "@/components/navbar";
+
 
 export const dynamic = "force-dynamic";
 
@@ -92,8 +92,7 @@ export default async function CarDetailPage({ params }: PageProps) {
   const tags = car.tags ?? [];
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#f7f8f4] text-[#0d1511]">
-      <Navbar />
+    <>
       <main>
       <section
         className="relative overflow-hidden bg-[#00261e] px-4 py-5 text-white sm:px-6 lg:px-10"
@@ -216,7 +215,7 @@ export default async function CarDetailPage({ params }: PageProps) {
         </div>
       </div>
       </main>
-    </div>
+    </>
   );
 }
 

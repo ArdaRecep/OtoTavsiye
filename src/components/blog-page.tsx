@@ -6,7 +6,7 @@ import { BookOpen, ChevronRight, Loader2, Pencil, Trash2 } from "lucide-react";
 import type { BlogPostRow } from "@/app/api/blog/route";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { BlogEditorModal } from "./blog-editor-modal";
-import { Navbar } from "./navbar";
+
 
 export function BlogPage() {
   const [posts, setPosts] = useState<BlogPostRow[]>([]);
@@ -59,10 +59,9 @@ export function BlogPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-100">
-      <Navbar />
+    <>
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-4 sm:px-5">
-        <header className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
+        <header className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2 text-[#014636]">
             <BookOpen className="h-5 w-5" />
             <span className="text-xs font-bold uppercase tracking-[0.14em]">Blog</span>
@@ -74,7 +73,7 @@ export function BlogPage() {
         </header>
 
         {isLoading || isAdminLoading ? (
-          <div className="flex min-h-72 items-center justify-center rounded-md border border-neutral-200 bg-white">
+          <div className="flex min-h-72 items-center justify-center rounded-md border border-neutral-300 bg-white">
             <Loader2 className="h-6 w-6 animate-spin text-[#014636]" />
           </div>
         ) : error ? (
@@ -82,7 +81,7 @@ export function BlogPage() {
         ) : posts.length ? (
           <div className="grid gap-4 sm:grid-cols-2">
             {posts.map((post) => (
-              <article key={post.id} className="overflow-hidden rounded-md border border-neutral-200 bg-white shadow-sm">
+              <article key={post.id} className="overflow-hidden rounded-md border border-neutral-300 bg-white shadow-sm">
                 {post.cover_image_url ? (
                   <div
                     className="aspect-[16/8] bg-neutral-100 bg-cover bg-center"
@@ -99,7 +98,7 @@ export function BlogPage() {
                         <button
                           type="button"
                           onClick={() => setEditingPost(post)}
-                          className="flex h-8 w-8 items-center justify-center rounded-md border border-neutral-200 text-neutral-500 transition hover:bg-neutral-50 hover:text-[#014636]"
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-neutral-300 text-neutral-500 transition hover:bg-neutral-50 hover:text-[#014636]"
                           aria-label={`${post.title} düzenle`}
                         >
                           <Pencil className="h-4 w-4" />
@@ -143,7 +142,7 @@ export function BlogPage() {
           onSaved={handleSavedPost}
         />
       </main>
-    </div>
+    </>
   );
 }
 

@@ -71,7 +71,7 @@ export function AuthModal({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/35 px-4 py-6 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-md border border-neutral-200 bg-white p-5 shadow-2xl">
+      <div className="w-full max-w-md rounded-md border border-neutral-300 bg-white p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#014636] text-white">
@@ -182,7 +182,7 @@ function Input({
         placeholder={placeholder}
         type={type}
         autoComplete={autoComplete}
-        className="mt-1 h-11 w-full rounded-md border border-neutral-200 px-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+        className="mt-1 h-11 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
       />
     </label>
   );

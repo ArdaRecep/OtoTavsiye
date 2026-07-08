@@ -9,7 +9,13 @@ import {
   removeComparisonItem,
 } from "@/lib/compare-storage";
 import type { RecommendedCar, RecommendedVehicle } from "@/lib/types";
-import { Navbar } from "./navbar";
+
+const fallbackImage =
+  "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=900&q=80";
+
+function getCarImage(car: RecommendedVehicle) {
+  return car.imageUrl || fallbackImage;
+}
 
 export function ComparisonPage() {
   const [items, setItems] = useState<RecommendedCar[]>([]);
@@ -33,10 +39,9 @@ export function ComparisonPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-100">
-      <Navbar />
+    <>
       <main className="mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-3 py-4 sm:px-5">
-        <header className="rounded-md border border-neutral-200 bg-white p-5 shadow-sm">
+        <header className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex items-center gap-2 text-[#014636]">
@@ -54,7 +59,7 @@ export function ComparisonPage() {
               <button
                 type="button"
                 onClick={handleClear}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-neutral-200 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
               >
                 <Trash2 className="h-4 w-4" />
                 Listeyi temizle
@@ -65,7 +70,7 @@ export function ComparisonPage() {
 
         {items.length ? (
           <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
-            <aside className="rounded-md border border-neutral-200 bg-white p-4 shadow-sm">
+            <aside className="rounded-md border border-neutral-300 bg-white p-4 shadow-sm">
               <div className="text-sm font-semibold text-neutral-950">Kısa bakış</div>
               <p className="mt-2 text-sm leading-6 text-neutral-600">
                 {items.length} araç seçildi. Kartlardaki satırlar aynı kriteri yan yana görmen için hizalandı.
@@ -82,10 +87,10 @@ export function ComparisonPage() {
               </div>
             </aside>
 
-            <section className="min-w-0 rounded-md border border-neutral-200 bg-white p-4 shadow-sm">
+            <section className="min-w-0 rounded-md border border-neutral-300 bg-white p-4 shadow-sm">
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 {items.map((item) => (
-                  <article key={item.car.id} className="flex min-h-full flex-col rounded-md border border-neutral-200 bg-white p-3 shadow-sm">
+                  <article key={item.car.id} className="flex min-h-full flex-col rounded-md border border-neutral-300 bg-white p-3 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#014636]">
@@ -105,6 +110,15 @@ export function ComparisonPage() {
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
+
+                    <div
+                      className="mt-3 aspect-[16/10] w-full rounded-md border border-neutral-300 bg-neutral-100"
+                      style={{
+                        backgroundImage: `url(${getCarImage(item.car)})`,
+                        backgroundPosition: "center",
+                        backgroundSize: "cover",
+                      }}
+                    />
 
                     <div className="mt-4 space-y-2">
                       {buildRows([item]).slice(1).map((row) => (
@@ -143,7 +157,7 @@ export function ComparisonPage() {
           </div>
         )}
       </main>
-    </div>
+    </>
   );
 }
 

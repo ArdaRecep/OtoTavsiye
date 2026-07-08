@@ -90,7 +90,7 @@ export function BlogEditorModal({
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 px-4 py-6 backdrop-blur-sm">
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-md border border-neutral-200 bg-white p-5 shadow-2xl">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-md border border-neutral-300 bg-white p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-neutral-950">{post ? "Blogu düzenle" : "Yeni blog ekle"}</h2>
@@ -136,7 +136,7 @@ export function BlogEditorModal({
                   setCoverPreview(null);
                   setForm((current) => ({ ...current, coverImageUrl: "" }));
                 }}
-                className="mt-2 h-9 w-full rounded-md border border-neutral-200 text-sm font-semibold text-neutral-600 transition hover:bg-neutral-50"
+                className="mt-2 h-9 w-full rounded-md border border-neutral-300 text-sm font-semibold text-neutral-600 transition hover:bg-neutral-50"
               >
                 Görseli kaldır
               </button>
@@ -162,7 +162,7 @@ export function BlogEditorModal({
                 onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
                 required
                 rows={10}
-                className="mt-1 w-full resize-y rounded-md border border-neutral-200 px-3 py-2 text-sm leading-6 outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+                className="mt-1 w-full resize-y rounded-md border border-neutral-300 px-3 py-2 text-sm leading-6 outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
               />
             </label>
             <label className="block">
@@ -172,7 +172,7 @@ export function BlogEditorModal({
                 onChange={(event) =>
                   setForm((current) => ({ ...current, status: event.target.value as "draft" | "published" }))
                 }
-                className="mt-1 h-10 w-full rounded-md border border-neutral-200 px-3 text-sm outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+                className="mt-1 h-10 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
               >
                 <option value="published">Yayında</option>
                 <option value="draft">Taslak</option>
@@ -244,7 +244,7 @@ function Input({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         required={required}
-        className="mt-1 h-10 w-full rounded-md border border-neutral-200 px-3 text-sm outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+        className="mt-1 h-10 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
       />
     </label>
   );

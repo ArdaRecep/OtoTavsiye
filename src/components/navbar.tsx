@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import {
+  Bell,
   BookOpen,
   Folder,
   Grid2X2,
@@ -14,18 +15,23 @@ import {
   Search,
   ShieldCheck,
   X,
+  Menu,
 } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
-import { clearStoredUserInfo, getStoredAvatarUrl, getStoredUserId, getStoredUserName } from "@/lib/user-identity";
+import { AUTH_CHANGE_EVENT, clearStoredUserInfo, getStoredAvatarUrl, getStoredUserId, getStoredUserName } from "@/lib/user-identity";
 import { ComparisonFloatingButton } from "./comparison-floating-button";
+import useSWR from "swr";
+import type { NotificationRow } from "@/app/api/notifications/route";
+
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 export type ActiveTab = "recommendations" | "comparisons" | "favorites" | "blog" | "admin";
 
-export const navItems: { id: ActiveTab; label: string; icon: typeof PenLine; href: string }[] = [
-  { id: "recommendations", label: "Öneriler", icon: PenLine, href: "/" },
-  { id: "comparisons", label: "Karşılaştırmalar", icon: Grid2X2, href: "/karsilastirmalar" },
-  { id: "favorites", label: "Favoriler", icon: Heart, href: "/favoriler" },
-  { id: "blog", label: "Blog", icon: BookOpen, href: "/blog" },
+export const navItems: { id: ActiveTab; label: string; icon: typeof PenLine; href: string; widthClass: string }[] = [
+  { id: "recommendations", label: "Öneriler", icon: PenLine, href: "/", widthClass: "w-[110px]" },
+  { id: "comparisons", label: "Karşılaştırmalar", icon: Grid2X2, href: "/karsilastirmalar", widthClass: "w-[160px]" },
+  { id: "favorites", label: "Favoriler", icon: Heart, href: "/favoriler", widthClass: "w-[110px]" },
+  { id: "blog", label: "Blog", icon: BookOpen, href: "/blog", widthClass: "w-[90px]" },
 ];
 
 type SearchResults = {
@@ -42,7 +48,7 @@ export function Brand() {
         style={{ backgroundImage: "url('/hangiArac.png')" }}
         aria-hidden="true"
       />
-      <span className="hidden text-[1.35rem] font-black tracking-tight sm:block">
+      <span className="text-[1.35rem] font-black tracking-tight">
         <span className="text-white">Hangi</span>
         <span className="text-emerald-300">Araç</span>
       </span>
@@ -50,14 +56,24 @@ export function Brand() {
   );
 }
 
-export function AuthButtons() {
+export function AuthButtons({ mobileMode = false }: { mobileMode?: boolean }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  const { data: notificationsData, mutate: mutateNotifications } = useSWR<{ notifications: NotificationRow[] }>(
+    userId ? `/api/notifications?userId=${userId}` : null,
+    fetcher,
+    { refreshInterval: 15000 } // Her 15 saniyede bir yeni bildirimleri kontrol et
+  );
+
+  const notifications = notificationsData?.notifications || [];
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   useEffect(() => {
-    queueMicrotask(() => {
+    function refreshAuth() {
       const id = getStoredUserId();
       if (id) {
         setUserId(id);
@@ -67,8 +83,18 @@ export function AuthButtons() {
           .then((response) => (response.ok ? response.json() : null))
           .then((data) => setIsAdmin(Boolean(data?.isAdmin)))
           .catch(() => setIsAdmin(false));
+      } else {
+        setUserId(null);
+        setUsername("");
+        setAvatarUrl(null);
+        setIsAdmin(false);
       }
-    });
+    }
+
+    queueMicrotask(refreshAuth);
+
+    window.addEventListener(AUTH_CHANGE_EVENT, refreshAuth);
+    return () => window.removeEventListener(AUTH_CHANGE_EVENT, refreshAuth);
   }, []);
 
   function handleLogout() {
@@ -78,6 +104,101 @@ export function AuthButtons() {
 
   if (userId && username) {
     const initial = username.charAt(0).toUpperCase();
+
+    if (mobileMode) {
+      return (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-3">
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={username} className="h-10 w-10 rounded-full object-cover" />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-sm font-bold text-white">
+                {initial}
+              </div>
+            )}
+            <div className="flex flex-col">
+              <span className="text-base font-semibold text-white">{username}</span>
+              {isAdmin && <span className="text-xs text-emerald-400">Admin</span>}
+            </div>
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex h-10 w-10 items-center justify-center rounded-md text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
+            >
+              <LogOut className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="mt-2">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between rounded-lg bg-white/5 px-4 py-3 transition hover:bg-white/10"
+              onClick={() => {
+                const nextState = !notificationsOpen;
+                setNotificationsOpen(nextState);
+                if (nextState && unreadCount > 0) {
+                  fetch("/api/notifications", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ userId, markAllAsRead: true }),
+                  }).then(() => mutateNotifications());
+                }
+              }}
+            >
+              <div className="flex items-center gap-3">
+                <Bell className="h-5 w-5 text-emerald-100/80" />
+                <span className="text-sm font-medium text-white">Bildirimler</span>
+              </div>
+              {unreadCount > 0 && (
+                <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            {notificationsOpen && (
+              <div className="mt-2 rounded-xl border border-white/10 bg-black/20 p-2">
+                {notifications.length === 0 ? (
+                  <div className="p-3 text-center text-sm text-emerald-100/60">Henüz bildirim yok.</div>
+                ) : (
+                  <div className="flex max-h-[250px] flex-col gap-1 overflow-y-auto">
+                    {notifications.map((notif) => {
+                      let title = "";
+                      if (notif.type === "reply") {
+                        title = `${notif.actor?.username || "Biri"} size yanıt verdi.`;
+                      } else if (notif.type === "vehicle_comment") {
+                        title = `Yorum yapmış olduğunuz ${notif.vehicle?.make || "bir"} ${notif.vehicle?.model || "araca"} yorum yapıldı.`;
+                      }
+
+                      return (
+                        <Link
+                          key={notif.id}
+                          href={notif.vehicle_id ? (notif.comment_id ? `/cars/${notif.vehicle_id}#comment-${notif.comment_id}` : `/cars/${notif.vehicle_id}`) : "#"}
+                          className={`block rounded-lg p-3 transition hover:bg-white/5 ${
+                            !notif.is_read ? "bg-emerald-900/40" : "bg-transparent"
+                          }`}
+                        >
+                          <p className="text-sm font-medium text-emerald-50">{title}</p>
+                          <p className="mt-1 text-xs text-emerald-100/50">
+                            {new Intl.DateTimeFormat("tr-TR", {
+                              day: "2-digit",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }).format(new Date(notif.created_at))}
+                          </p>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="flex shrink-0 items-center gap-3">
@@ -90,6 +211,80 @@ export function AuthButtons() {
             Admin
           </Link>
         ) : null}
+
+        {/* Bildirimler */}
+        <div className="relative">
+          <button
+            type="button"
+            className="relative flex h-9 w-9 items-center justify-center rounded-md text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
+            onClick={() => {
+              const nextState = !notificationsOpen;
+              setNotificationsOpen(nextState);
+              if (nextState && unreadCount > 0) {
+                // Bildirimler açıldığında hepsini okundu olarak işaretle
+                fetch("/api/notifications", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ userId, markAllAsRead: true }),
+                }).then(() => mutateNotifications());
+              }
+            }}
+            onBlur={() => setTimeout(() => setNotificationsOpen(false), 200)}
+            aria-label="Bildirimler"
+          >
+            <Bell className="h-5 w-5" />
+            {unreadCount > 0 && (
+              <span className="absolute right-1.5 top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white ring-2 ring-[#00261e]">
+                {unreadCount}
+              </span>
+            )}
+          </button>
+
+          {/* Açılır Bildirim Menüsü */}
+          {notificationsOpen && (
+            <div className="absolute right-0 top-full mt-2 w-80 origin-top-right overflow-hidden rounded-xl border border-neutral-300 bg-white shadow-2xl z-50">
+              <div className="border-b border-neutral-100 bg-neutral-50/50 px-4 py-3">
+                <h3 className="text-sm font-semibold text-neutral-900">Bildirimler</h3>
+              </div>
+              <div className="max-h-[350px] overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <div className="p-4 text-center text-sm text-neutral-500">Henüz bildirim yok.</div>
+                ) : (
+                  notifications.map((notif) => {
+                    let title = "";
+                    if (notif.type === "reply") {
+                      title = `${notif.actor?.username || "Biri"} size yanıt verdi.`;
+                    } else if (notif.type === "vehicle_comment") {
+                      title = `Yorum yapmış olduğunuz ${notif.vehicle?.make || "bir"} ${notif.vehicle?.model || "araca"} yorum yapıldı.`;
+                    }
+
+                    return (
+                      <Link
+                        key={notif.id}
+                        href={notif.vehicle_id ? (notif.comment_id ? `/cars/${notif.vehicle_id}#comment-${notif.comment_id}` : `/cars/${notif.vehicle_id}`) : "#"}
+                        className={`block border-b border-neutral-50 p-4 transition hover:bg-neutral-50 ${
+                          !notif.is_read ? "bg-emerald-50/30" : "bg-white"
+                        }`}
+                      >
+                        <p className="text-sm font-medium text-neutral-800">{title}</p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          {new Intl.DateTimeFormat("tr-TR", {
+                            day: "2-digit",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }).format(new Date(notif.created_at))}
+                        </p>
+                      </Link>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Kullanıcı Profili */}
         <div className="flex items-center gap-2">
           {avatarUrl ? (
             <img src={avatarUrl} alt={username} className="h-7 w-7 rounded-full object-cover" />
@@ -108,6 +303,25 @@ export function AuthButtons() {
         >
           <LogOut className="h-4 w-4" />
         </button>
+      </div>
+    );
+  }
+
+  if (mobileMode) {
+    return (
+      <div className="flex flex-col gap-3">
+        <Link
+          href="/giris"
+          className="flex items-center justify-center rounded-lg bg-white/10 py-3 text-sm font-semibold text-white transition hover:bg-white/20"
+        >
+          Giriş Yap
+        </Link>
+        <Link
+          href="/kayit"
+          className="flex items-center justify-center rounded-lg bg-emerald-500 py-3 text-sm font-semibold text-white transition hover:bg-emerald-400"
+        >
+          Kayıt Ol
+        </Link>
       </div>
     );
   }
@@ -209,7 +423,7 @@ export function SearchField({
       />
 
       {isOpen && (
-        <div className="absolute top-full z-50 mt-2 w-full overflow-hidden rounded-xl border border-neutral-200 bg-white text-left shadow-2xl">
+        <div className="absolute top-full z-50 mt-2 w-full overflow-hidden rounded-xl border border-neutral-300 bg-white text-left shadow-2xl">
           {loading ? (
             <div className="flex items-center justify-center p-4 text-sm text-neutral-500">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -274,8 +488,20 @@ export function Navbar({
   onSearchChange?: (value: string) => void;
 }) {
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [mobileMenuOpen]);
 
   const handleSearchChange = (value: string) => {
     if (onSearchChange && pathname === "/") {
@@ -286,7 +512,7 @@ export function Navbar({
   };
 
   const navLinks = (
-    <nav className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1">
+    <nav className="-mx-1 flex shrink-0 items-center gap-1.5 overflow-x-auto px-1 lg:overflow-visible">
       {navItems.map((item) => {
         const Icon = item.icon;
         const isActive = isNavItemActive(pathname, item.href);
@@ -295,7 +521,7 @@ export function Navbar({
           <Link
             key={item.id}
             href={item.href}
-            className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-lg px-3.5 text-sm font-semibold transition ${
+            className={`inline-flex h-10 shrink-0 justify-center items-center gap-2 rounded-lg text-sm font-semibold transition ${item.widthClass} ${
               isActive ? "bg-[#0b513c] text-white" : "text-emerald-50/90 hover:bg-white/10"
             }`}
           >
@@ -312,9 +538,9 @@ export function Navbar({
       <header className="sticky top-0 z-30 border-b border-emerald-950/30 bg-[#00261e] text-white shadow-sm">
         <div className="mx-auto w-full max-w-[1920px] px-3 py-3 sm:px-5">
           {/* Masaüstü: tek satır */}
-          <div className="hidden items-center gap-5 lg:flex">
+          <div className="hidden items-center gap-3 lg:flex xl:gap-5">
             <Brand />
-            <div className="relative w-[360px] shrink-0 xl:w-[540px] 2xl:w-[680px]">
+            <div className="relative w-full max-w-[320px] xl:max-w-[540px] 2xl:max-w-[680px]">
               <SearchField value={searchQuery || ""} onChange={handleSearchChange} />
             </div>
             {navLinks}
@@ -322,7 +548,7 @@ export function Navbar({
             <AuthButtons />
           </div>
 
-          {/* Mobil: büyüteç ikonu tıklanınca açılan arama */}
+          {/* Mobil: Üst Bilgi Çubuğu */}
           <div className="lg:hidden">
             {mobileSearchOpen ? (
               <div className="flex items-center gap-2">
@@ -339,26 +565,98 @@ export function Navbar({
                 </button>
               </div>
             ) : (
-              <>
-                <div className="flex items-center gap-2">
-                  <Brand />
-                  <div className="flex-1" />
+              <div className="flex items-center justify-between">
+                <Brand />
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => setMobileSearchOpen(true)}
                     className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/90 transition hover:bg-white/10"
                     aria-label="Ara"
                   >
-                    <Search className="h-5 w-5" />
+                    <Search className="h-6 w-6" />
                   </button>
-                  <AuthButtons />
+                  <button
+                    type="button"
+                    onClick={() => setMobileMenuOpen(true)}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/90 transition hover:bg-white/10"
+                    aria-label="Menüyü aç"
+                  >
+                    <Menu className="h-6 w-6" />
+                  </button>
                 </div>
-                <div className="mt-2">{navLinks}</div>
-              </>
+              </div>
             )}
           </div>
         </div>
       </header>
+
+      {/* Mobil Drawer Overlay */}
+      <div 
+        className={`fixed inset-0 z-50 flex lg:hidden transition-all duration-300 ${
+          mobileMenuOpen ? "visible" : "invisible"
+        }`}
+      >
+        {/* Backdrop */}
+        <div 
+          className={`absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${
+            mobileMenuOpen ? "opacity-100" : "opacity-0"
+          }`} 
+          onClick={() => setMobileMenuOpen(false)} 
+          aria-hidden="true" 
+        />
+        
+        {/* Drawer Content */}
+        <div 
+          className={`absolute inset-y-0 right-0 w-[85%] max-w-sm bg-[#00261e] shadow-xl flex flex-col transform transition-transform duration-300 ease-in-out ${
+            mobileMenuOpen ? "translate-x-0" : "translate-x-full"
+          }`}
+        >
+          <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+            <span className="text-lg font-bold text-white">Menü</span>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 -mr-2"
+              aria-label="Menüyü kapat"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto px-5 py-6 flex flex-col gap-6">
+            {/* Profil / Bildirimler (AuthButtons) */}
+            <div>
+              <AuthButtons mobileMode={true} />
+            </div>
+            
+            <div className="h-px bg-white/10" />
+
+            {/* Menü Linkleri */}
+            <nav className="flex flex-col gap-2">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = isNavItemActive(pathname, item.href);
+
+                return (
+                  <Link
+                    key={item.id}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex items-center gap-4 rounded-lg px-4 py-3.5 text-base font-semibold transition ${
+                      isActive ? "bg-[#0b513c] text-white" : "text-emerald-50/80 hover:bg-white/5 hover:text-white"
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+        </div>
+      </div>
+
       <ComparisonFloatingButton />
     </>
   );

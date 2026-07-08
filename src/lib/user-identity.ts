@@ -44,6 +44,9 @@ export function getStoredUser(): UserInfo | null {
   };
 }
 
+/** Auth durumu değiştiğinde diğer bileşenleri bilgilendiren custom event adı */
+export const AUTH_CHANGE_EVENT = "oto-tavsiye-auth-change";
+
 /** Kullanıcı bilgilerini localStorage'a kaydeder */
 export function storeUserInfo(user: UserInfo): void {
   if (typeof window === "undefined") return;
@@ -59,6 +62,7 @@ export function storeUserInfo(user: UserInfo): void {
   } else {
     localStorage.removeItem(EMAIL_KEY);
   }
+  window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
 }
 
 export function clearStoredUserInfo(): void {
@@ -67,6 +71,7 @@ export function clearStoredUserInfo(): void {
   localStorage.removeItem(USERNAME_KEY);
   localStorage.removeItem(AVATAR_KEY);
   localStorage.removeItem(EMAIL_KEY);
+  window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
 }
 
 /** Kullanıcı adını günceller (hem localStorage hem API) */
