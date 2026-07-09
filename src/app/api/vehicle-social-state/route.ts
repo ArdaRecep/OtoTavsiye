@@ -12,9 +12,8 @@ type VehicleSocialRpcRow = {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { vehicleIds, userId } = body as {
+    const { vehicleIds } = body as {
       vehicleIds?: string[];
-      userId?: string | null;
     };
 
     if (!Array.isArray(vehicleIds)) {
@@ -27,13 +26,13 @@ export async function POST(request: Request) {
       return Response.json({ vehicles: [] });
     }
 
-    const supabase = createSupabaseServerClient({ userId });
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("get_vehicle_social_state", {
       p_vehicle_ids: uniqueIds,
     });
 
     if (error) {
-      return Response.json({ error: "Araç sosyal bilgileri alınamadı.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Araç sosyal bilgileri alınamadı." }, { status: 500 });
     }
 
     return Response.json({ vehicles: ((data ?? []) as VehicleSocialRpcRow[]).map(normalizeVehicleSocialRow) });

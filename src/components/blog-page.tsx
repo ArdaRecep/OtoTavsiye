@@ -17,7 +17,7 @@ export function BlogPage() {
 
   const fetchPosts = useCallback(async () => {
     try {
-      const query = isAdmin && userId ? `?includeDrafts=true&userId=${encodeURIComponent(userId)}` : "";
+      const query = isAdmin ? "?includeDrafts=true" : "";
       const response = await fetch(`/api/blog${query}`);
       const data = await response.json();
 
@@ -31,7 +31,7 @@ export function BlogPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [isAdmin, userId]);
+  }, [isAdmin]);
 
   useEffect(() => {
     if (isAdminLoading) return;
@@ -46,7 +46,7 @@ export function BlogPage() {
     const response = await fetch(`/api/blog/${encodeURIComponent(post.slug)}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({}),
     });
 
     if (response.ok) {

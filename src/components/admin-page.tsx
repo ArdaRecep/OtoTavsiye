@@ -57,8 +57,8 @@ export function AdminPage() {
 
     setIsDataLoading(true);
     const [postsResponse, commentsResponse] = await Promise.all([
-      fetch(`/api/blog?includeDrafts=true&userId=${encodeURIComponent(userId)}`),
-      fetch(`/api/admin/comments?userId=${encodeURIComponent(userId)}`),
+      fetch("/api/blog?includeDrafts=true"),
+      fetch("/api/admin/comments"),
     ]);
     const [postsData, commentsData] = await Promise.all([postsResponse.json(), commentsResponse.json()]);
 
@@ -115,7 +115,7 @@ export function AdminPage() {
     const response = await fetch(`/api/blog/${encodeURIComponent(slug)}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({}),
     });
 
     if (response.ok) {
@@ -131,7 +131,7 @@ export function AdminPage() {
     const response = await fetch(`/api/blog/${encodeURIComponent(post.slug)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, status: nextStatus }),
+      body: JSON.stringify({ status: nextStatus }),
     });
     const data = await response.json();
 
@@ -146,7 +146,7 @@ export function AdminPage() {
     const response = await fetch("/api/admin/comments", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, commentId }),
+      body: JSON.stringify({ commentId }),
     });
 
     if (response.ok) {

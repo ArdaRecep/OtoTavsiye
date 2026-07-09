@@ -53,12 +53,11 @@ export function BlogEditorModal({
     setError(null);
 
     try {
-      const coverImageUrl = coverFile ? await uploadCoverImage(userId, coverFile) : form.coverImageUrl;
+      const coverImageUrl = coverFile ? await uploadCoverImage(coverFile) : form.coverImageUrl;
       const response = await fetch(post ? `/api/blog/${encodeURIComponent(post.slug)}` : "/api/blog", {
         method: post ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId,
           title: form.title,
           excerpt: form.excerpt,
           content: form.content,
@@ -208,9 +207,8 @@ function createInitialForm(post?: BlogPostRow | null): BlogFormState {
   };
 }
 
-async function uploadCoverImage(userId: string, file: File) {
+async function uploadCoverImage(file: File) {
   const formData = new FormData();
-  formData.set("userId", userId);
   formData.set("file", file);
 
   const response = await fetch("/api/blog/upload", {

@@ -1,6 +1,5 @@
 import { getAdminState } from "@/lib/admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { NextRequest } from "next/server";
 
 type CommentAdminRow = {
   id: string;
@@ -24,16 +23,15 @@ type VehicleRow = {
   model: string;
 };
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const userId = request.nextUrl.searchParams.get("userId");
-    const adminState = await getAdminState(userId);
+    const adminState = await getAdminState();
 
     if (!adminState.isAdmin) {
       return Response.json({ error: "Yetkin yok." }, { status: 403 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("vehicle_comments")
       .select("id, vehicle_id, parent_id, user_id, content, created_at, users:user_id(username, email)")
@@ -41,7 +39,7 @@ export async function GET(request: NextRequest) {
       .limit(80);
 
     if (error) {
-      return Response.json({ error: "Yorumlar alınamadı.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Yorumlar alınamadı." }, { status: 500 });
     }
 
     const comments = (data ?? []) as unknown as CommentAdminRow[];
@@ -67,11 +65,10 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: Request) {
   try {
     const body = await request.json();
-    const { userId, commentId } = body as {
-      userId?: string;
+    const { commentId } = body as {
       commentId?: string;
     };
-    const adminState = await getAdminState(userId);
+    const adminState = await getAdminState();
 
     if (!adminState.isAdmin) {
       return Response.json({ error: "Yetkin yok." }, { status: 403 });
@@ -81,12 +78,12 @@ export async function DELETE(request: Request) {
       return Response.json({ error: "commentId gerekli." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     await supabase.from("vehicle_comments").delete().eq("parent_id", commentId);
     const { error } = await supabase.from("vehicle_comments").delete().eq("id", commentId);
 
     if (error) {
-      return Response.json({ error: "Yorum silinemedi.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Yorum silinemedi." }, { status: 500 });
     }
 
     return Response.json({ ok: true });

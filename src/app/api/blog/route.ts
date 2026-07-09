@@ -17,10 +17,9 @@ export type BlogPostRow = {
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.nextUrl.searchParams.get("userId");
     const includeDrafts = request.nextUrl.searchParams.get("includeDrafts") === "true";
-    const adminState = includeDrafts ? await getAdminState(userId) : { isAdmin: false };
-    const supabase = createSupabaseServerClient();
+    const adminState = includeDrafts ? await getAdminState() : { isAdmin: false };
+    const supabase = await createSupabaseServerClient();
 
     let query = supabase
       .from("blog_posts")
@@ -38,7 +37,7 @@ export async function GET(request: NextRequest) {
         return Response.json({ posts: [] });
       }
 
-      return Response.json({ posts: [], error: "Bloglar alınamadı.", details: error.message }, { status: 500 });
+      return Response.json({ posts: [], error: "Bloglar alınamadı." }, { status: 500 });
     }
 
     return Response.json({ posts: data ?? [] });
@@ -54,15 +53,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { userId, title, excerpt, content, coverImageUrl, status } = body as {
-      userId?: string;
+    const { title, excerpt, content, coverImageUrl, status } = body as {
       title?: string;
       excerpt?: string;
       content?: string;
       coverImageUrl?: string;
       status?: "draft" | "published";
     };
-    const adminState = await getAdminState(userId);
+    const adminState = await getAdminState();
 
     if (!adminState.isAdmin || !adminState.user) {
       return Response.json({ error: "Yetkin yok." }, { status: 403 });
@@ -72,7 +70,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Başlık ve içerik gerekli." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const slug = await createUniqueSlug(title, supabase);
     const { data, error } = await supabase
       .from("blog_posts")
@@ -89,7 +87,7 @@ export async function POST(request: Request) {
       .single<BlogPostRow>();
 
     if (error) {
-      return Response.json({ error: "Blog eklenemedi.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Blog eklenemedi." }, { status: 500 });
     }
 
     return Response.json({ post: data }, { status: 201 });
@@ -98,7 +96,7 @@ export async function POST(request: Request) {
   }
 }
 
-async function createUniqueSlug(title: string, supabase: ReturnType<typeof createSupabaseServerClient>) {
+async function createUniqueSlug(title: string, supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
   const baseSlug = slugify(title);
   let slug = baseSlug;
   let counter = 2;

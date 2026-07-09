@@ -7,12 +7,11 @@ type RouteContext = {
   params: Promise<{ slug: string }>;
 };
 
-export async function GET(request: NextRequest, context: RouteContext) {
+export async function GET(_request: NextRequest, context: RouteContext) {
   try {
     const { slug } = await context.params;
-    const userId = request.nextUrl.searchParams.get("userId");
-    const adminState = userId ? await getAdminState(userId) : { isAdmin: false };
-    const supabase = createSupabaseServerClient();
+    const adminState = await getAdminState();
+    const supabase = await createSupabaseServerClient();
     let query = supabase
       .from("blog_posts")
       .select("id, title, slug, excerpt, content, cover_image_url, status, author_id, created_at, updated_at")
@@ -29,7 +28,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         return Response.json({ error: "Blog bulunamadı." }, { status: 404 });
       }
 
-      return Response.json({ error: "Blog alınamadı.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Blog alınamadı." }, { status: 500 });
     }
 
     if (!data) {
@@ -46,15 +45,14 @@ export async function PATCH(request: Request, context: RouteContext) {
   try {
     const { slug } = await context.params;
     const body = await request.json();
-    const { userId, title, excerpt, content, coverImageUrl, status } = body as {
-      userId?: string;
+    const { title, excerpt, content, coverImageUrl, status } = body as {
       title?: string;
       excerpt?: string;
       content?: string;
       coverImageUrl?: string;
       status?: "draft" | "published";
     };
-    const adminState = await getAdminState(userId);
+    const adminState = await getAdminState();
 
     if (!adminState.isAdmin) {
       return Response.json({ error: "Yetkin yok." }, { status: 403 });
@@ -70,7 +68,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (coverImageUrl !== undefined) updates.cover_image_url = coverImageUrl.trim() || null;
     if (status === "draft" || status === "published") updates.status = status;
 
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("blog_posts")
       .update(updates)
@@ -79,7 +77,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       .single<BlogPostRow>();
 
     if (error) {
-      return Response.json({ error: "Blog güncellenemedi.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Blog güncellenemedi." }, { status: 500 });
     }
 
     return Response.json({ post: data });
@@ -91,18 +89,18 @@ export async function PATCH(request: Request, context: RouteContext) {
 export async function DELETE(request: Request, context: RouteContext) {
   try {
     const { slug } = await context.params;
-    const body = await request.json().catch(() => ({}));
-    const adminState = await getAdminState(body.userId);
+    await request.json().catch(() => ({}));
+    const adminState = await getAdminState();
 
     if (!adminState.isAdmin) {
       return Response.json({ error: "Yetkin yok." }, { status: 403 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const { error } = await supabase.from("blog_posts").delete().eq("slug", slug);
 
     if (error) {
-      return Response.json({ error: "Blog silinemedi.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Blog silinemedi." }, { status: 500 });
     }
 
     return Response.json({ ok: true });

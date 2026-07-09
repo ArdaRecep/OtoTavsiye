@@ -22,9 +22,9 @@ import {
   Zap,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getComparisonItemIds, toggleComparisonItem } from "@/lib/compare-storage";
-import { getStoredUserId } from "@/lib/user-identity";
+import { getComparisonItemIds, MAX_COMPARISON_ITEMS, toggleComparisonItem } from "@/lib/compare-storage";
 import { useDebounce } from "@/hooks/use-debounce";
+import { ComparisonToast } from "./comparison-toast";
 import { FavoriteButton, VehicleRatingButton } from "./vehicle-social-actions";
 import type {
   FocusEvent,
@@ -175,13 +175,12 @@ export function CarAdvisor() {
   }, []);
 
   const fetchSocialStateForVehicles = useCallback(async (vehicleIds: string[]) => {
-    const userId = getStoredUserId();
     if (!vehicleIds.length) return;
 
     const response = await fetch("/api/vehicle-social-state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vehicleIds, userId }),
+      body: JSON.stringify({ vehicleIds }),
     });
     const result = await response.json();
 
@@ -409,7 +408,7 @@ export function CarAdvisor() {
     } else if (status === "removed") {
       setComparisonNotice(`${carName} karşılaştırmadan çıkarıldı.`);
     } else {
-      setComparisonNotice("Karşılaştırma listesi dolu. En fazla 4 araç ekleyebilirsin.");
+      setComparisonNotice(`Karşılaştırma listesi dolu. En fazla ${MAX_COMPARISON_ITEMS} araç ekleyebilirsin.`);
     }
 
     window.setTimeout(() => setComparisonNotice(null), 2600);
@@ -720,7 +719,7 @@ function RecommendationResults({
   return (
     <section className="min-w-0 space-y-4">
       {error ? <ErrorState message={error} /> : null}
-      {comparisonNotice ? <NoticeState message={comparisonNotice} /> : null}
+      {comparisonNotice ? <ComparisonToast message={comparisonNotice} /> : null}
       {isLoading ? <LoadingState /> : null}
       {!isLoading && data && data.totalMatches === 0 && !hasSearch ? <EmptyState /> : null}
       {!isLoading && data && (data.totalMatches > 0 || hasSearch) ? (
@@ -1446,18 +1445,6 @@ function ErrorState({ message }: { message: string }) {
       <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
       <div>
         <h2 className="font-semibold">Bir şey ters gitti</h2>
-        <p className="mt-1 text-sm">{message}</p>
-      </div>
-    </div>
-  );
-}
-
-function NoticeState({ message }: { message: string }) {
-  return (
-    <div className="flex gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-amber-950">
-      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-      <div>
-        <h2 className="font-semibold">Giriş gerekli</h2>
         <p className="mt-1 text-sm">{message}</p>
       </div>
     </div>

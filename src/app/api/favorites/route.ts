@@ -3,30 +3,27 @@ import {
   normalizeRecommendationRequest,
   type VehicleProfileRow,
 } from "@/lib/recommendations";
+import { requireUser } from "@/lib/auth/require-user";
+import { authErrorResponse } from "@/lib/auth/handle-auth-error";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { NextRequest } from "next/server";
 
 const vehicleProfileSelect =
   "id, make, model, trim_level, segment, power_hp, min_year, max_year, min_km, max_km, market_min_price, market_max_price, avg_annual_cost_try, condition_summary, image_url, tags, why_listed, pros, cons";
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const userId = request.nextUrl.searchParams.get("userId");
+    const user = await requireUser();
 
-    if (!userId) {
-      return Response.json({ error: "Giriş gerekli." }, { status: 401 });
-    }
-
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const { data: favorites, error: favoriteError } = await supabase
       .from("vehicle_favorites")
       .select("vehicle_id, created_at")
-      .eq("user_id", userId)
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
     if (favoriteError) {
       return Response.json(
-        { error: "Favoriler alınamadı.", details: favoriteError.message },
+        { error: "Favoriler alınamadı." },
         { status: 500 },
       );
     }
@@ -55,7 +52,7 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       return Response.json(
-        { error: "Favori araçlar alınamadı.", details: error.message },
+        { error: "Favori araçlar alınamadı." },
         { status: 500 },
       );
     }
@@ -73,7 +70,10 @@ export async function GET(request: NextRequest) {
         pageSize: rows.length,
       }),
     );
-  } catch {
+  } catch (error) {
+    const authResponse = authErrorResponse(error);
+    if (authResponse) return authResponse;
+
     return Response.json({ error: "Favoriler alınamadı." }, { status: 500 });
   }
 }

@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { Loader2, Lock, LogIn, UserPlus, X } from "lucide-react";
-import { storeUserInfo, type UserInfo } from "@/lib/user-identity";
+import type { ClientUser } from "@/lib/auth/client-user";
 
 type AuthMode = "login" | "register";
 
@@ -17,7 +17,7 @@ export function AuthModal({
   title?: string;
   description?: string;
   onClose: () => void;
-  onAuthenticated: (user: UserInfo) => void;
+  onAuthenticated: (user: ClientUser) => void;
 }) {
   const [mode, setMode] = useState<AuthMode>("register");
   const [email, setEmail] = useState("");
@@ -53,14 +53,14 @@ export function AuthModal({
         throw new Error(data.error ?? "İşlem tamamlanamadı.");
       }
 
-      const user: UserInfo = {
+      const user: ClientUser = {
         id: data.user.id,
         username: data.user.username,
-        avatarUrl: data.user.avatar_url ?? null,
+        avatarUrl: data.user.avatarUrl ?? data.user.avatar_url ?? null,
         email: data.user.email ?? null,
+        isAdmin: Boolean(data.user.isAdmin),
       };
 
-      storeUserInfo(user);
       onAuthenticated(user);
     } catch (err) {
       setError(err instanceof Error ? err.message : "İşlem tamamlanamadı.");
@@ -112,6 +112,14 @@ export function AuthModal({
         </div>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-3">
+          <Input
+            label="E-posta"
+            value={email}
+            onChange={setEmail}
+            placeholder="ornek@email.com"
+            type="email"
+            autoComplete="email"
+          />
           {mode === "register" ? (
             <Input
               label="Kullanıcı adı"
@@ -121,14 +129,6 @@ export function AuthModal({
               autoComplete="username"
             />
           ) : null}
-          <Input
-            label="E-posta"
-            value={email}
-            onChange={setEmail}
-            placeholder="ornek@email.com"
-            type="email"
-            autoComplete="email"
-          />
           <Input
             label="Şifre"
             value={password}

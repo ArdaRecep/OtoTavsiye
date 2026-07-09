@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     const from = page * pageSize;
     const to = from + pageSize;
     const searchQuery = normalizeSearchTerm(payload.searchQuery);
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
 
     if (searchQuery && searchQuery.length >= 2) {
       const searchTerms = searchQuery.split(" ").filter(Boolean).slice(0, 5);
@@ -53,7 +53,6 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error: "Arama sonuçları alınamadı.",
-            details: error.message,
           },
           { status: 500 },
         );
@@ -90,7 +89,6 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error: "Araç listesi alınamadı.",
-            details: error.message,
           },
           { status: 500 },
         );
@@ -114,7 +112,6 @@ export async function POST(request: Request) {
       return Response.json(
         {
           error: "Araç önerileri alınamadı.",
-          details: error.message,
         },
         { status: 500 },
       );
@@ -128,10 +125,10 @@ export async function POST(request: Request) {
         hasMore: false,
       }),
     );
-  } catch (error) {
+  } catch {
     return Response.json(
       {
-        error: error instanceof Error ? error.message : "Geçersiz istek.",
+        error: "Geçersiz istek.",
       },
       { status: 400 },
     );

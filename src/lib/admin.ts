@@ -1,53 +1,21 @@
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { getCurrentUser } from "@/lib/auth/get-current-user";
+import type { AppUserProfile } from "@/lib/auth/types";
 
-export type AdminUser = {
-  id: string;
-  email: string | null;
-  username: string | null;
-};
+export type AdminUser = Pick<AppUserProfile, "id" | "email" | "username">;
 
-export async function getAdminState(userId: string | null | undefined) {
-  if (!userId) {
+export async function getAdminState() {
+  const currentUser = await getCurrentUser();
+
+  if (!currentUser?.profile?.is_admin) {
     return { isAdmin: false, user: null as AdminUser | null };
   }
-
-  const supabase = createSupabaseServerClient();
-  const { data: user, error } = await supabase
-    .from("users")
-    .select("id, email, username")
-    .eq("id", userId)
-    .maybeSingle<AdminUser>();
-
-  if (error || !user) {
-    return { isAdmin: false, user: null as AdminUser | null };
-  }
-
-  const isEnvAdmin =
-    csvIncludes(process.env.ADMIN_USER_IDS, user.id) ||
-    csvIncludes(process.env.ADMIN_EMAILS, user.email ?? "");
-
-  if (isEnvAdmin) {
-    return { isAdmin: true, user };
-  }
-
-  const { data: adminFlag } = await supabase
-    .from("users")
-    .select("is_admin")
-    .eq("id", userId)
-    .maybeSingle<{ is_admin: boolean }>();
 
   return {
-    isAdmin: Boolean(adminFlag?.is_admin),
-    user,
+    isAdmin: true,
+    user: {
+      id: currentUser.profile.id,
+      email: currentUser.profile.email,
+      username: currentUser.profile.username,
+    },
   };
-}
-
-function csvIncludes(value: string | undefined, item: string) {
-  if (!value || !item) return false;
-
-  return value
-    .split(",")
-    .map((part) => part.trim().toLowerCase())
-    .filter(Boolean)
-    .includes(item.toLowerCase());
 }

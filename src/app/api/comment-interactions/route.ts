@@ -1,4 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/auth/require-user";
+import { authErrorResponse } from "@/lib/auth/handle-auth-error";
 import { NextRequest } from "next/server";
 
 type CommentReactionRow = {
@@ -10,20 +12,21 @@ type CommentReactionRow = {
 
 export async function POST(request: NextRequest) {
   try {
-    const { commentId, userId, action } = await request.json();
+    const { commentId, action } = await request.json();
 
-    if (!commentId || !userId || !action || !["like", "dislike"].includes(action)) {
+    if (!commentId || !action || !["like", "dislike"].includes(action)) {
       return Response.json({ error: "Geçersiz parametreler." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient({ userId });
+    await requireUser();
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("toggle_comment_reaction", {
       p_comment_id: commentId,
       p_type: action,
     });
 
     if (error) {
-      return Response.json({ error: "İşlem gerçekleştirilemedi.", details: error.message }, { status: 500 });
+      return Response.json({ error: "İşlem gerçekleştirilemedi." }, { status: 500 });
     }
 
     const row = (Array.isArray(data) ? data[0] : data) as CommentReactionRow | null;
@@ -34,7 +37,10 @@ export async function POST(request: NextRequest) {
       dislikeCount: Number(row?.dislike_count ?? 0),
       userInteraction: row?.current_user_reaction ?? null,
     });
-  } catch {
+  } catch (error) {
+    const authResponse = authErrorResponse(error);
+    if (authResponse) return authResponse;
+
     return Response.json({ error: "İşlem gerçekleştirilemedi." }, { status: 500 });
   }
 }

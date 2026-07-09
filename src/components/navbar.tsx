@@ -18,7 +18,7 @@ import {
   Menu,
 } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
-import { AUTH_CHANGE_EVENT, clearStoredUserInfo, getStoredAvatarUrl, getStoredUserId, getStoredUserName } from "@/lib/user-identity";
+import { useCurrentUser } from "@/lib/auth/client-user";
 import { ComparisonFloatingButton } from "./comparison-floating-button";
 import useSWR from "swr";
 import type { NotificationRow } from "@/app/api/notifications/route";
@@ -57,14 +57,12 @@ export function Brand() {
 }
 
 export function AuthButtons({ mobileMode = false }: { mobileMode?: boolean }) {
-  const [userId, setUserId] = useState<string | null>(null);
-  const [username, setUsername] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const router = useRouter();
+  const { user, userId, isAdmin, mutate } = useCurrentUser();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const { data: notificationsData, mutate: mutateNotifications } = useSWR<{ notifications: NotificationRow[] }>(
-    userId ? `/api/notifications?userId=${userId}` : null,
+    userId ? "/api/notifications" : null,
     fetcher,
     { refreshInterval: 15000 } // Her 15 saniyede bir yeni bildirimleri kontrol et
   );
@@ -72,37 +70,16 @@ export function AuthButtons({ mobileMode = false }: { mobileMode?: boolean }) {
   const notifications = notificationsData?.notifications || [];
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
-  useEffect(() => {
-    function refreshAuth() {
-      const id = getStoredUserId();
-      if (id) {
-        setUserId(id);
-        setUsername(getStoredUserName());
-        setAvatarUrl(getStoredAvatarUrl());
-        void fetch(`/api/admin/status?userId=${encodeURIComponent(id)}`)
-          .then((response) => (response.ok ? response.json() : null))
-          .then((data) => setIsAdmin(Boolean(data?.isAdmin)))
-          .catch(() => setIsAdmin(false));
-      } else {
-        setUserId(null);
-        setUsername("");
-        setAvatarUrl(null);
-        setIsAdmin(false);
-      }
-    }
-
-    queueMicrotask(refreshAuth);
-
-    window.addEventListener(AUTH_CHANGE_EVENT, refreshAuth);
-    return () => window.removeEventListener(AUTH_CHANGE_EVENT, refreshAuth);
-  }, []);
-
-  function handleLogout() {
-    clearStoredUserInfo();
-    window.location.href = "/";
+  async function handleLogout() {
+    await fetch("/api/auth", { method: "DELETE" });
+    await mutate({ user: null }, { revalidate: false });
+    router.refresh();
+    router.push("/");
   }
 
-  if (userId && username) {
+  if (userId && user) {
+    const username = user.username;
+    const avatarUrl = user.avatarUrl;
     const initial = username.charAt(0).toUpperCase();
 
     if (mobileMode) {
@@ -141,7 +118,7 @@ export function AuthButtons({ mobileMode = false }: { mobileMode?: boolean }) {
                   fetch("/api/notifications", {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ userId, markAllAsRead: true }),
+                    body: JSON.stringify({ markAllAsRead: true }),
                   }).then(() => mutateNotifications());
                 }
               }}
@@ -225,7 +202,7 @@ export function AuthButtons({ mobileMode = false }: { mobileMode?: boolean }) {
                 fetch("/api/notifications", {
                   method: "PATCH",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ userId, markAllAsRead: true }),
+                  body: JSON.stringify({ markAllAsRead: true }),
                 }).then(() => mutateNotifications());
               }
             }}

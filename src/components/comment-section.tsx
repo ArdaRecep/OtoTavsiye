@@ -13,11 +13,7 @@ import {
   ThumbsUp,
 } from "lucide-react";
 import { useAdminStatus } from "@/hooks/use-admin-status";
-import {
-  getStoredUserId,
-  getStoredUserName,
-  type UserInfo,
-} from "@/lib/user-identity";
+import { useCurrentUser } from "@/lib/auth/client-user";
 import { AuthModal } from "./auth-modal";
 
 type CommentData = {
@@ -41,6 +37,26 @@ type CommentData = {
 
 type CommentApiRow = Omit<CommentData, "replies"> & {
   replies?: CommentData[];
+  parentId?: string | null;
+};
+
+type ComparisonCommentApiRow = {
+  id: string;
+  comparisonId: string;
+  parentId: string | null;
+  userId: string;
+  body: string;
+  createdAt: string;
+  author: {
+    username: string;
+    avatarUrl: string | null;
+  };
+  likeCount?: number;
+  dislikeCount?: number;
+  userInteraction?: "like" | "dislike" | null;
+  replyCount?: number;
+  authorCarRating?: number | null;
+  replies?: ComparisonCommentApiRow[];
 };
 
 type PendingComment = {
@@ -51,7 +67,23 @@ type PendingComment = {
 
 const MAX_VISUAL_DEPTH = 4;
 
-export function CommentSection({ vehicleId }: { vehicleId: string }) {
+export function CommentSection({ vehicleId, className }: { vehicleId: string; className?: string }) {
+  return <ThreadedCommentSection sourceType="vehicle" sourceId={vehicleId} className={className} />;
+}
+
+export function ComparisonCommentSection({ comparisonId, className }: { comparisonId: string; className?: string }) {
+  return <ThreadedCommentSection sourceType="comparison" sourceId={comparisonId} className={className} />;
+}
+
+function ThreadedCommentSection({
+  sourceType,
+  sourceId,
+  className,
+}: {
+  sourceType: "vehicle" | "comparison";
+  sourceId: string;
+  className?: string;
+}) {
   const [comments, setComments] = useState<CommentData[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,28 +91,27 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [pendingReactionIds, setPendingReactionIds] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<"popular" | "newest" | "oldest">("popular");
-  const [currentUserId, setCurrentUserId] = useState("");
-  const [currentUserName, setCurrentUserName] = useState("");
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const hasLoadedRef = useRef(false);
   const { userId: adminUserId, isAdmin } = useAdminStatus();
+  const { user, userId: currentUserId, mutate: mutateCurrentUser } = useCurrentUser();
+  const currentUserName = user?.username ?? "";
 
   const fetchComments = useCallback(async () => {
     try {
       if (!hasLoadedRef.current) setIsLoading(true);
 
-      const params = new URLSearchParams({ vehicleId });
-      const userId = getStoredUserId();
-      if (userId) params.set("userId", userId);
-
-      const response = await fetch(`/api/comments?${params.toString()}`);
+      const response = await fetch(getCommentsUrl(sourceType, sourceId));
 
       if (!response.ok) return;
 
       const data = await response.json();
-      const flatComments = (data.comments ?? []) as CommentApiRow[];
+      const flatComments = sourceType === "vehicle"
+        ? ((data.comments ?? []) as CommentApiRow[])
+        : ((data.comments ?? []) as ComparisonCommentApiRow[]).map(mapComparisonCommentRow);
+
       setComments(buildCommentTree(flatComments));
       setTotal(data.total ?? flatComments.length);
     } catch {
@@ -89,12 +120,10 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
       hasLoadedRef.current = true;
       setIsLoading(false);
     }
-  }, [vehicleId]);
+  }, [sourceId, sourceType]);
 
   useEffect(() => {
     queueMicrotask(() => {
-      setCurrentUserId(getStoredUserId() ?? "");
-      setCurrentUserName(getStoredUserName());
       void fetchComments();
     });
   }, [fetchComments]);
@@ -116,25 +145,27 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
       return;
     }
 
-    await submitComment(content, currentUserId, parentId ?? null);
+    await submitComment(content, parentId ?? null);
     clearDraft?.();
   }
 
-  async function submitComment(content: string, userId: string, parentId: string | null) {
-    const response = await fetch("/api/comments", {
+  async function submitComment(content: string, parentId: string | null) {
+    const response = await fetch(getCreateCommentUrl(sourceType, sourceId), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        vehicleId,
-        userId,
-        content,
-        parentId,
-      }),
+      body: JSON.stringify(getCreateCommentPayload(sourceType, sourceId, content, parentId)),
     });
 
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       throw new Error(data?.error ?? "Yorum gönderilemedi.");
+    }
+
+    const data = await response.json().catch(() => null) as { comment?: CommentApiRow | ComparisonCommentApiRow } | null;
+    const createdComment = data?.comment ? normalizeCreatedComment(sourceType, data.comment) : null;
+
+    if (createdComment) {
+      setComments((current) => insertCommentIntoTree(current, createdComment));
     }
 
     if (parentId) {
@@ -161,10 +192,10 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
     setPendingReactionIds((current) => new Set(current).add(commentId));
 
     try {
-      const response = await fetch("/api/comment-interactions", {
+      const response = await fetch(getInteractionUrl(sourceType), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commentId, userId: currentUserId, action }),
+        body: JSON.stringify({ commentId, action }),
       });
       const result = await response.json();
 
@@ -190,9 +221,8 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
     }
   }
 
-  async function handleAuthSuccess(user: UserInfo) {
-    setCurrentUserId(user.id);
-    setCurrentUserName(user.username);
+  async function handleAuthSuccess() {
+    await mutateCurrentUser();
 
     if (!pendingComment) {
       setIsAuthOpen(false);
@@ -201,7 +231,7 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
     }
 
     try {
-      await submitComment(pendingComment.content, user.id, pendingComment.parentId);
+      await submitComment(pendingComment.content, pendingComment.parentId);
       pendingComment.clearDraft();
       setPendingComment(null);
       setIsAuthOpen(false);
@@ -213,10 +243,10 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
   async function handleDeleteComment(commentId: string) {
     if (!adminUserId) return;
 
-    const response = await fetch("/api/admin/comments", {
+    const response = await fetch(getDeleteCommentUrl(sourceType, commentId), {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: adminUserId, commentId }),
+      body: sourceType === "vehicle" ? JSON.stringify({ commentId }) : undefined,
     });
 
     if (response.ok) {
@@ -235,7 +265,7 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
   }
 
   return (
-    <section className="mt-5 rounded-md border border-neutral-300 bg-white p-4 shadow-sm sm:p-5">
+    <section className={["mt-5 rounded-md border border-neutral-300 bg-white p-4 shadow-sm sm:p-5", className].filter(Boolean).join(" ")}>
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div className="flex items-center gap-3">
           <MessageCircle className="h-6 w-6 text-[#014636]" />
@@ -265,7 +295,7 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
         <CommentForm
           currentUserName={currentUserName}
           onSubmit={(content, clearDraft) => handleSubmitComment(content, null, clearDraft)}
-          placeholder="Bu araç hakkında düşüncelerinizi paylaşın..."
+          placeholder={sourceType === "vehicle" ? "Bu araç hakkında düşüncelerinizi paylaşın..." : "Bu karşılaştırma hakkında düşüncelerinizi paylaşın..."}
           submitLabel="Yorum yap"
         />
       </div>
@@ -295,7 +325,7 @@ export function CommentSection({ vehicleId }: { vehicleId: string }) {
             <CommentThread
               key={comment.id}
               comment={comment}
-              currentUserId={currentUserId}
+              currentUserId={currentUserId ?? ""}
               currentUserName={currentUserName}
               isAdmin={isAdmin}
               replyingTo={replyingTo}
@@ -666,18 +696,173 @@ function CommentForm({
   );
 }
 
+function getCommentsUrl(sourceType: "vehicle" | "comparison", sourceId: string) {
+  if (sourceType === "vehicle") {
+    const params = new URLSearchParams({ vehicleId: sourceId });
+
+    return `/api/comments?${params.toString()}`;
+  }
+
+  return `/api/comparisons/${sourceId}/comments`;
+}
+
+function getCreateCommentUrl(sourceType: "vehicle" | "comparison", sourceId: string) {
+  return sourceType === "vehicle" ? "/api/comments" : `/api/comparisons/${sourceId}/comments`;
+}
+
+function getCreateCommentPayload(
+  sourceType: "vehicle" | "comparison",
+  sourceId: string,
+  content: string,
+  parentId: string | null,
+) {
+  if (sourceType === "vehicle") {
+    return {
+      vehicleId: sourceId,
+      content,
+      parentId,
+    };
+  }
+
+  return {
+    content,
+    parentId,
+  };
+}
+
+function getInteractionUrl(sourceType: "vehicle" | "comparison") {
+  return sourceType === "vehicle" ? "/api/comment-interactions" : "/api/comparison-comment-interactions";
+}
+
+function getDeleteCommentUrl(sourceType: "vehicle" | "comparison", commentId: string) {
+  return sourceType === "vehicle" ? "/api/admin/comments" : `/api/comparison-comments/${commentId}`;
+}
+
+function mapComparisonCommentRow(row: ComparisonCommentApiRow): CommentApiRow {
+  return {
+    id: row.id,
+    vehicle_id: row.comparisonId,
+    parent_id: row.parentId,
+    user_id: row.userId,
+    content: row.body,
+    created_at: row.createdAt,
+    user: {
+      username: row.author.username,
+      avatar_url: row.author.avatarUrl,
+    },
+    likeCount: Number(row.likeCount ?? 0),
+    dislikeCount: Number(row.dislikeCount ?? 0),
+    userInteraction: row.userInteraction ?? null,
+    replyCount: Number(row.replyCount ?? 0),
+    authorCarRating: row.authorCarRating === null || row.authorCarRating === undefined ? null : Number(row.authorCarRating),
+    replies: Array.isArray(row.replies) ? row.replies.map(mapComparisonCommentData) : [],
+  };
+}
+
+function mapComparisonCommentData(row: ComparisonCommentApiRow): CommentData {
+  const mapped = mapComparisonCommentRow(row);
+
+  return {
+    ...mapped,
+    replies: Array.isArray(row.replies) ? row.replies.map(mapComparisonCommentData) : [],
+  };
+}
+
+function normalizeCreatedComment(
+  sourceType: "vehicle" | "comparison",
+  comment: CommentApiRow | ComparisonCommentApiRow,
+): CommentData {
+  if (sourceType === "comparison") {
+    return mapComparisonCommentData(comment as ComparisonCommentApiRow);
+  }
+
+  const row = comment as CommentApiRow;
+
+  return {
+    ...row,
+    parent_id: row.parent_id ?? row.parentId ?? null,
+    likeCount: Number(row.likeCount ?? 0),
+    dislikeCount: Number(row.dislikeCount ?? 0),
+    replyCount: Number(row.replyCount ?? 0),
+    authorCarRating: row.authorCarRating === null || row.authorCarRating === undefined ? null : Number(row.authorCarRating),
+    replies: Array.isArray(row.replies) ? row.replies : [],
+  };
+}
+
+function insertCommentIntoTree(comments: CommentData[], nextComment: CommentData): CommentData[] {
+  if (!nextComment.parent_id) {
+    if (comments.some((comment) => comment.id === nextComment.id)) return comments;
+
+    return [...comments, nextComment];
+  }
+
+  const result = insertReplyIntoTree(comments, nextComment);
+
+  return result.inserted ? result.comments : [...comments, nextComment];
+}
+
+function insertReplyIntoTree(
+  comments: CommentData[],
+  nextComment: CommentData,
+): { comments: CommentData[]; inserted: boolean } {
+  let inserted = false;
+
+  const nextComments = comments.map((comment) => {
+    if (comment.id === nextComment.parent_id) {
+      if (comment.replies.some((reply) => reply.id === nextComment.id)) {
+        inserted = true;
+        return comment;
+      }
+
+      inserted = true;
+      return {
+        ...comment,
+        replyCount: Math.max(comment.replyCount + 1, comment.replies.length + 1),
+        replies: [...comment.replies, nextComment],
+      };
+    }
+
+    if (!comment.replies.length) return comment;
+
+    const childResult = insertReplyIntoTree(comment.replies, nextComment);
+
+    if (!childResult.inserted) return comment;
+
+    inserted = true;
+
+    return {
+      ...comment,
+      replies: childResult.comments,
+    };
+  });
+
+  return { comments: nextComments, inserted };
+}
+
 function buildCommentTree(flatComments: CommentApiRow[]): CommentData[] {
   const byId = new Map<string, CommentData>();
   const roots: CommentData[] = [];
 
   for (const row of flatComments) {
+    const parentId = row.parent_id ?? row.parentId ?? null;
+    const nestedReplies = Array.isArray(row.replies) ? row.replies : [];
+
     byId.set(row.id, {
       ...row,
+      parent_id: parentId,
       likeCount: Number(row.likeCount ?? 0),
       dislikeCount: Number(row.dislikeCount ?? 0),
       replyCount: Number(row.replyCount ?? 0),
       authorCarRating: row.authorCarRating === null || row.authorCarRating === undefined ? null : Number(row.authorCarRating),
-      replies: [],
+      replies: nestedReplies.map((reply) => ({
+        ...reply,
+        parent_id: reply.parent_id ?? row.id,
+        likeCount: Number(reply.likeCount ?? 0),
+        dislikeCount: Number(reply.dislikeCount ?? 0),
+        replyCount: Number(reply.replyCount ?? 0),
+        authorCarRating: reply.authorCarRating === null || reply.authorCarRating === undefined ? null : Number(reply.authorCarRating),
+        replies: Array.isArray(reply.replies) ? reply.replies : [],
+      })),
     });
   }
 
@@ -685,7 +870,8 @@ function buildCommentTree(flatComments: CommentApiRow[]): CommentData[] {
     const parent = comment.parent_id ? byId.get(comment.parent_id) : null;
 
     if (parent) {
-      parent.replies.push(comment);
+      const alreadyAttached = parent.replies.some((reply) => reply.id === comment.id);
+      if (!alreadyAttached) parent.replies.push(comment);
     } else {
       roots.push(comment);
     }

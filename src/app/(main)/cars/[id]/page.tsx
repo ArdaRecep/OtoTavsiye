@@ -225,7 +225,7 @@ export default async function CarDetailPage({ params }: PageProps) {
 }
 
 async function getVehicleProfile(id: string) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("vehicle_market_profiles")
     .select(

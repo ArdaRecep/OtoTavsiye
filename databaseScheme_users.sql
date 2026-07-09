@@ -6,7 +6,7 @@
 -- 1. KULLANICILAR (USERS) TABLOSU
 CREATE TABLE users (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE,
     username VARCHAR(50) NOT NULL,
     avatar_url TEXT, -- Kullanıcı PP (Profil Resmi) URL'si
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -28,6 +28,7 @@ CREATE TABLE user_vehicle_interactions (
 
 CREATE INDEX idx_interactions_user ON user_vehicle_interactions(user_id);
 CREATE INDEX idx_interactions_vehicle ON user_vehicle_interactions(vehicle_id);
+CREATE UNIQUE INDEX idx_users_username_lower ON users (LOWER(username));
 
 -- 3. YORUMLAR VE YANITLAR (COMMENTS) TABLOSU
 CREATE TABLE vehicle_comments (

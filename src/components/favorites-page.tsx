@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, Grid2X2, Heart, Loader2, Trash2 } from "lucide-react";
-import { getComparisonItemIds, toggleComparisonItem } from "@/lib/compare-storage";
+import { getComparisonItemIds, MAX_COMPARISON_ITEMS, toggleComparisonItem } from "@/lib/compare-storage";
+import { ComparisonToast } from "./comparison-toast";
 import type { RecommendationResponse, RecommendedCar, RecommendedVehicle } from "@/lib/types";
-import { getStoredUserId } from "@/lib/user-identity";
+import { useCurrentUser } from "@/lib/auth/client-user";
 
 
 const fallbackImage =
@@ -17,15 +18,15 @@ export function FavoritesPage() {
   const [pendingComparisonId, setPendingComparisonId] = useState<string | null>(null);
   const [comparisonNotice, setComparisonNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { userId, isLoading: isUserLoading } = useCurrentUser();
 
-  const fetchFavorites = useCallback(async (nextUserId: string) => {
+  const fetchFavorites = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/favorites?userId=${encodeURIComponent(nextUserId)}`);
+      const response = await fetch("/api/favorites");
       const data = (await response.json()) as RecommendationResponse & { error?: string };
 
       if (!response.ok) {
@@ -41,19 +42,19 @@ export function FavoritesPage() {
   }, []);
 
   useEffect(() => {
+    if (isUserLoading) return;
+
     queueMicrotask(() => {
-      const storedUserId = getStoredUserId();
-      setUserId(storedUserId);
       setComparisonIds(getComparisonItemIds());
 
-      if (!storedUserId) {
+      if (!userId) {
         setIsLoading(false);
         return;
       }
 
-      void fetchFavorites(storedUserId);
+      void fetchFavorites();
     });
-  }, [fetchFavorites]);
+  }, [fetchFavorites, isUserLoading, userId]);
 
   async function removeFavorite(item: RecommendedCar) {
     if (!userId) return;
@@ -63,7 +64,7 @@ export function FavoritesPage() {
     const response = await fetch("/api/interactions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vehicleId: item.car.id, userId, action: "favorite" }),
+      body: JSON.stringify({ vehicleId: item.car.id, action: "favorite" }),
     });
 
     if (!response.ok) {
@@ -87,7 +88,7 @@ export function FavoritesPage() {
     } else if (status === "removed") {
       setComparisonNotice(`${carName} karşılaştırmadan çıkarıldı.`);
     } else {
-      setComparisonNotice("Karşılaştırma listesi dolu. En fazla 4 araç ekleyebilirsin.");
+      setComparisonNotice(`Karşılaştırma listesi dolu. En fazla ${MAX_COMPARISON_ITEMS} araç ekleyebilirsin.`);
     }
 
     window.setTimeout(() => setComparisonNotice(null), 2600);
@@ -122,11 +123,7 @@ export function FavoritesPage() {
           <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-950">{error}</div>
         ) : items.length ? (
           <>
-            {comparisonNotice ? (
-              <div className="rounded-md border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-[#014636]">
-                {comparisonNotice}
-              </div>
-            ) : null}
+            {comparisonNotice ? <ComparisonToast message={comparisonNotice} /> : null}
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {items.map((item) => (
                 <FavoriteCard

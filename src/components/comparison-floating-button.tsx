@@ -3,18 +3,23 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Grid2X2 } from "lucide-react";
+import { useAutoComparison } from "@/hooks/use-auto-comparison";
 import { getComparisonItems } from "@/lib/compare-storage";
+import type { RecommendedCar } from "@/lib/types";
 
 export function ComparisonFloatingButton() {
-  const [count, setCount] = useState(0);
+  const [items, setItems] = useState<RecommendedCar[]>([]);
+  const count = items.length;
+
+  useAutoComparison(items);
 
   useEffect(() => {
-    const syncCount = () => setCount(getComparisonItems().length);
+    const syncItems = () => setItems(getComparisonItems());
 
-    queueMicrotask(syncCount);
-    window.addEventListener("hangi-arac-comparison-updated", syncCount);
+    queueMicrotask(syncItems);
+    window.addEventListener("hangi-arac-comparison-updated", syncItems);
 
-    return () => window.removeEventListener("hangi-arac-comparison-updated", syncCount);
+    return () => window.removeEventListener("hangi-arac-comparison-updated", syncItems);
   }, []);
 
   if (!count) return null;

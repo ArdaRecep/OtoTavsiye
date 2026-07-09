@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       return Response.json({ suggestions: [], categories: [] });
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const searchTerms = query.split(" ").filter(Boolean).slice(0, 5);
     let autocompleteQuery = supabase
       .from("vehicle_market_profiles")
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error("Autocomplete Error:", error);
-      return Response.json({ error: error.message }, { status: 500 });
+      return Response.json({ error: "Öneriler alınamadı." }, { status: 500 });
     }
 
     const rows = (data ?? []) as AutocompleteRow[];

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Grid2X2, Heart, Loader2, Star, X } from "lucide-react";
 import type { RecommendedCar, VehicleSocialState } from "@/lib/types";
-import { getStoredUserId } from "@/lib/user-identity";
-import { getComparisonItemIds, toggleComparisonItem } from "@/lib/compare-storage";
+import { getComparisonItemIds, MAX_COMPARISON_ITEMS, toggleComparisonItem } from "@/lib/compare-storage";
+import { ComparisonToast } from "./comparison-toast";
 import { RatingStars } from "./rating-stars";
+import { useCurrentUser } from "@/lib/auth/client-user";
 
 const emptySocialState: VehicleSocialState = {
   vehicleId: "",
@@ -29,19 +30,15 @@ export function VehicleRatingButton({
   compact?: boolean;
 }) {
   const social = state ?? { ...emptySocialState, vehicleId };
+  const { userId } = useCurrentUser();
   const [isOpen, setIsOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [preview, setPreview] = useState<number | null>(null);
   const [selected, setSelected] = useState<number>(social.userRating ?? social.averageRating ?? 0);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSelected(social.userRating ?? social.averageRating ?? 0);
-  }, [social.averageRating, social.userRating]);
+  const currentRating = social.userRating ?? social.averageRating ?? 0;
 
   async function saveRating(nextRating: number) {
-    const userId = getStoredUserId();
-
     if (!userId) {
       setError("Puan vermek için giriş yapmalısın.");
       return;
@@ -54,7 +51,7 @@ export function VehicleRatingButton({
       const response = await fetch("/api/vehicle-rating", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vehicleId, userId, rating: nextRating }),
+        body: JSON.stringify({ vehicleId, rating: nextRating }),
       });
       const data = await response.json();
 
@@ -134,6 +131,7 @@ export function VehicleRatingButton({
         type="button"
         onClick={() => {
           setError(null);
+          setSelected(currentRating);
           setIsOpen(true);
         }}
         className={`inline-flex items-center justify-center gap-1.5 rounded-full border border-neutral-300 bg-white font-semibold text-neutral-700 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 ${
@@ -163,11 +161,10 @@ export function FavoriteButton({
   compact?: boolean;
 }) {
   const social = state ?? { ...emptySocialState, vehicleId };
+  const { userId } = useCurrentUser();
   const [isLoading, setIsLoading] = useState(false);
 
   async function toggleFavorite() {
-    const userId = getStoredUserId();
-
     if (!userId) return;
 
     setIsLoading(true);
@@ -176,7 +173,7 @@ export function FavoriteButton({
       const response = await fetch("/api/interactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vehicleId, userId, action: "favorite" }),
+        body: JSON.stringify({ vehicleId, action: "favorite" }),
       });
       const data = await response.json();
 
@@ -221,27 +218,25 @@ export function VehicleDetailActions({
   const [comparisonIds, setComparisonIds] = useState<string[]>([]);
   const [comparisonNotice, setComparisonNotice] = useState<string | null>(null);
 
-  useEffect(() => {
-    queueMicrotask(() => {
-      setComparisonIds(getComparisonItemIds());
-      void fetchSocialState();
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.car.id]);
-
-  async function fetchSocialState() {
-    const userId = getStoredUserId();
+  const fetchSocialState = useCallback(async () => {
     const response = await fetch("/api/vehicle-social-state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vehicleIds: [item.car.id], userId }),
+      body: JSON.stringify({ vehicleIds: [item.car.id] }),
     });
     const data = await response.json();
 
     if (response.ok && data.vehicles?.[0]) {
       setState(data.vehicles[0]);
     }
-  }
+  }, [item.car.id]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setComparisonIds(getComparisonItemIds());
+      void fetchSocialState();
+    });
+  }, [fetchSocialState]);
 
   function mergeState(nextState: Partial<VehicleSocialState>) {
     setState((current) => ({ ...current, ...nextState, vehicleId: item.car.id }));
@@ -254,7 +249,7 @@ export function VehicleDetailActions({
 
     if (status === "added") setComparisonNotice("Karşılaştırmaya eklendi.");
     else if (status === "removed") setComparisonNotice("Karşılaştırmadan çıkarıldı.");
-    else setComparisonNotice("Karşılaştırma listesi dolu. En fazla 4 araç ekleyebilirsin.");
+    else setComparisonNotice(`Karşılaştırma listesi dolu. En fazla ${MAX_COMPARISON_ITEMS} araç ekleyebilirsin.`);
 
     window.setTimeout(() => setComparisonNotice(null), 2400);
   }
@@ -280,7 +275,7 @@ export function VehicleDetailActions({
           {isCompared ? "Listede" : "Karşılaştır"}
         </button>
       </div>
-      {comparisonNotice ? <p className="mt-3 text-sm font-semibold text-[#014636]">{comparisonNotice}</p> : null}
+      {comparisonNotice ? <ComparisonToast message={comparisonNotice} /> : null}
     </div>
   );
 }

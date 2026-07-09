@@ -19,8 +19,7 @@ export function BlogDetailPage({ slug }: { slug: string }) {
 
   const fetchPost = useCallback(async () => {
     try {
-      const query = isAdmin && userId ? `?userId=${encodeURIComponent(userId)}` : "";
-      const response = await fetch(`/api/blog/${encodeURIComponent(slug)}${query}`);
+      const response = await fetch(`/api/blog/${encodeURIComponent(slug)}`);
       const data = await response.json();
 
       if (!response.ok) {
@@ -33,7 +32,7 @@ export function BlogDetailPage({ slug }: { slug: string }) {
     } finally {
       setIsLoading(false);
     }
-  }, [isAdmin, slug, userId]);
+  }, [slug]);
 
   useEffect(() => {
     if (isAdminLoading) return;
@@ -48,7 +47,7 @@ export function BlogDetailPage({ slug }: { slug: string }) {
     const response = await fetch(`/api/blog/${encodeURIComponent(post.slug)}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({}),
     });
 
     if (response.ok) {

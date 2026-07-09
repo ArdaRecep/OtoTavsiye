@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { CarFront, Eye, EyeOff, Loader2, LogIn, Mail, Lock } from "lucide-react";
-import { storeUserInfo } from "@/lib/user-identity";
+import { useState } from "react";
+import { CarFront, Check, Eye, EyeOff, Loader2, LogIn, Lock, Mail, Shield, Star } from "lucide-react";
 
 export default function GirisPage() {
   const router = useRouter();
@@ -13,18 +12,6 @@ export default function GirisPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      const params = new URLSearchParams(window.location.search);
-
-      if (params.get("oauthError") === "google_disabled") {
-        setError(
-          "Google ile giriş Supabase tarafında henüz aktif değil. Yönetici panelinden Google sağlayıcısı açılınca bu seçenek çalışacak.",
-        );
-      }
-    });
-  }, []);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -52,13 +39,7 @@ export default function GirisPage() {
         return;
       }
 
-      storeUserInfo({
-        id: data.user.id,
-        username: data.user.username,
-        avatarUrl: data.user.avatar_url ?? null,
-        email: data.user.email ?? null,
-      });
-
+      router.refresh();
       router.push("/");
     } catch {
       setError("Bağlantı hatası. Lütfen tekrar deneyin.");
@@ -68,130 +49,165 @@ export default function GirisPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white px-4 py-12">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="mb-8 flex flex-col items-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#014636] shadow-lg">
-            <CarFront className="h-9 w-9 text-white" />
+    <main className="flex min-h-screen bg-[#f4f6f3]">
+      {/* Sol Panel — Marka */}
+      <div className="relative hidden w-[42%] min-w-[380px] overflow-hidden bg-[#00140f] lg:flex lg:flex-col lg:justify-between">
+        {/* Orman yolu arka planı */}
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: "url(/forest-road.png)" }}
+        />
+        {/* Okunabilirlik için koyu degrade */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#00140f]/85 via-[#00140f]/40 to-[#00140f]/85" />
+
+        <div className="relative z-10 flex flex-1 flex-col justify-center px-10 xl:px-14">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 backdrop-blur">
+            <CarFront className="h-8 w-8 text-white" />
           </div>
-          <h1 className="mt-5 text-2xl font-bold text-[#0a1110]">Tekrar hoş geldiniz</h1>
-          <p className="mt-2 text-sm text-neutral-500">
-            Hesabınıza giriş yaparak devam edin
+
+          <h2 className="mt-8 text-3xl font-bold leading-tight text-white xl:text-4xl">
+            Tekrar hoş<br />geldiniz
+          </h2>
+          <p className="mt-4 max-w-sm text-sm leading-6 text-emerald-100/80">
+            Hesabınıza dönün; favorilerinize, yorumlarınıza ve size özel araç önerilerine kaldığınız yerden ulaşın.
           </p>
+
+          <div className="mt-10 space-y-4">
+            <FeatureBadge icon={<Star className="h-4 w-4" />} text="Favori araçlarına hızlı eriş" />
+            <FeatureBadge icon={<Check className="h-4 w-4" />} text="Önerilerini kaldığın yerden gör" />
+            <FeatureBadge icon={<Shield className="h-4 w-4" />} text="Kullanıcı adı ve şifreyle güvenli giriş" />
+          </div>
         </div>
 
-        {/* Form Card */}
-        <div className="rounded-2xl border-2 border-[#014636] bg-white p-6 shadow-sm sm:p-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* E-posta */}
-            <div>
-              <label htmlFor="login-email" className="mb-1.5 block text-sm font-semibold text-neutral-700">
-                E-posta
-              </label>
-              <div className="relative">
-                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                <input
-                  id="login-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="ornek@email.com"
-                  required
-                  autoComplete="email"
-                  className="h-12 w-full rounded-xl border border-neutral-200 bg-white pl-10 pr-4 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
-                />
-              </div>
+        <div className="relative z-10 px-10 pb-8 xl:px-14">
+          <p className="text-xs text-emerald-200/40">© 2025 Araç Karar Motoru</p>
+        </div>
+      </div>
+
+      {/* Sağ Panel — Form */}
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden px-5 py-10 sm:px-8">
+        {/* Dekoratif zemin */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#eef4f0] via-[#e9f1ec] to-[#d9e6df]" />
+        <div className="pointer-events-none absolute -right-24 -top-16 h-80 w-80 rounded-full bg-emerald-300/25 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-12 h-72 w-72 rounded-full bg-[#014636]/10 blur-3xl" />
+
+        <div className="relative z-10 w-full max-w-[440px]">
+          {/* Mobil logo */}
+          <div className="mb-7 flex flex-col items-center lg:hidden">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#014636]">
+              <CarFront className="h-8 w-8 text-white" />
             </div>
-
-            {/* Şifre */}
-            <div>
-              <label htmlFor="login-password" className="mb-1.5 block text-sm font-semibold text-neutral-700">
-                Şifre
-              </label>
-              <div className="relative">
-                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                <input
-                  id="login-password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  autoComplete="current-password"
-                  className="h-12 w-full rounded-xl border border-neutral-200 bg-white pl-10 pr-12 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 transition hover:text-neutral-600"
-                  aria-label={showPassword ? "Şifreyi gizle" : "Şifreyi göster"}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Hata */}
-            {error && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-                {error}
-              </div>
-            )}
-
-            {/* Giriş Butonu */}
-            <button
-              type="submit"
-              disabled={isLoading || !email.trim() || !password.trim()}
-              className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-[#014636] font-semibold text-white shadow-sm transition hover:bg-[#003a2d] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isLoading ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <LogIn className="h-5 w-5" />
-              )}
-              Giriş Yap
-            </button>
-          </form>
-
-          <div className="my-5 flex items-center gap-3">
-            <div className="h-px flex-1 bg-neutral-200" />
-            <span className="text-xs text-neutral-400">veya</span>
-            <div className="h-px flex-1 bg-neutral-200" />
+            <h1 className="mt-4 text-xl font-bold text-[#0a1110]">Giriş yapın</h1>
           </div>
 
-          <Link
-            href="/api/auth/google"
-            className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-neutral-200 bg-white text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50"
-          >
-            <span className="flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 text-xs font-bold text-[#014636]">
-              G
-            </span>
-            Google ile devam et
-          </Link>
+          {/* Desktop başlık */}
+          <div className="mb-8 hidden lg:block">
+            <h1 className="text-2xl font-bold text-[#0a1110]">Giriş yapın</h1>
+            <p className="mt-1.5 text-sm text-neutral-500">E-posta adresiniz ve şifrenizle devam edin</p>
+          </div>
 
-          {/* Alt link */}
-          <div className="mt-6 text-center text-sm text-neutral-500">
-            Hesabınız yok mu?{" "}
+          {/* Form Card */}
+          <div className="rounded-3xl border border-white/70 bg-white/95 p-6 shadow-[0_24px_60px_-20px_rgba(1,70,54,0.35)] backdrop-blur-sm sm:p-8">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* E-posta */}
+              <div>
+                <label htmlFor="login-email" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                  E-posta
+                </label>
+                <div className="relative">
+                  <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    id="login-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="ornek@email.com"
+                    required
+                    autoComplete="email"
+                    className="h-11 w-full rounded-lg border border-neutral-200 bg-white pl-10 pr-4 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                  />
+                </div>
+              </div>
+
+              {/* Şifre */}
+              <div>
+                <label htmlFor="login-password" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                  Şifre
+                </label>
+                <div className="relative">
+                  <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    id="login-password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Şifreniz"
+                    required
+                    autoComplete="current-password"
+                    className="h-11 w-full rounded-lg border border-neutral-200 bg-white pl-10 pr-11 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 transition hover:text-neutral-600"
+                    aria-label={showPassword ? "Şifreyi gizle" : "Şifreyi göster"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Hata */}
+              {error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                  {error}
+                </div>
+              )}
+
+              {/* Giriş Butonu */}
+              <button
+                type="submit"
+                disabled={isLoading || !email.trim() || !password.trim()}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#014636] text-sm font-semibold text-white shadow-md shadow-emerald-900/10 transition hover:bg-[#003a2d] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <LogIn className="h-4 w-4" />
+                )}
+                Giriş Yap
+              </button>
+            </form>
+
+            {/* Misafir giriş */}
             <Link
-              href="/kayit"
-              className="font-semibold text-[#014636] transition hover:text-[#003a2d]"
+              href="/"
+              className="mt-5 flex h-11 w-full items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100"
             >
-              Kayıt Ol
+              Misafir olarak devam et
             </Link>
           </div>
-        </div>
 
-        {/* Misafir giriş */}
-        <div className="mt-5 text-center">
-          <Link
-            href="/"
-            className="text-sm text-neutral-400 transition hover:text-neutral-600"
-          >
-            Misafir olarak devam et →
-          </Link>
+          {/* Alt link */}
+          <p className="mt-5 text-center text-sm text-neutral-500">
+            Hesabınız yok mu?{" "}
+            <Link href="/kayit" className="font-semibold text-[#014636] hover:underline">
+              Kayıt Ol
+            </Link>
+          </p>
         </div>
       </div>
     </main>
+  );
+}
+
+function FeatureBadge({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-emerald-200">
+        {icon}
+      </div>
+      <span className="text-sm font-medium text-emerald-50/90">{text}</span>
+    </div>
   );
 }

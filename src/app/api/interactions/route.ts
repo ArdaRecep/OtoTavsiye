@@ -1,4 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/auth/require-user";
+import { authErrorResponse } from "@/lib/auth/handle-auth-error";
 import { NextRequest } from "next/server";
 
 type FavoriteStateRow = {
@@ -10,19 +12,18 @@ type FavoriteStateRow = {
 export async function GET(request: NextRequest) {
   try {
     const vehicleId = request.nextUrl.searchParams.get("vehicleId");
-    const userId = request.nextUrl.searchParams.get("userId");
 
     if (!vehicleId) {
       return Response.json({ error: "vehicleId gerekli." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient({ userId });
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("get_vehicle_favorite_state", {
       p_vehicle_id: vehicleId,
     });
 
     if (error) {
-      return Response.json({ error: "Favori bilgisi alınamadı.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Favori bilgisi alınamadı." }, { status: 500 });
     }
 
     const row = (Array.isArray(data) ? data[0] : data) as FavoriteStateRow | null;
@@ -42,27 +43,27 @@ export async function GET(request: NextRequest) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { vehicleId, userId, action } = body as {
+    const { vehicleId, action } = body as {
       vehicleId?: string;
-      userId?: string;
       action?: "like" | "favorite";
     };
 
-    if (!vehicleId || !userId || !action) {
-      return Response.json({ error: "vehicleId, userId ve action gerekli." }, { status: 400 });
+    if (!vehicleId || !action) {
+      return Response.json({ error: "vehicleId ve action gerekli." }, { status: 400 });
     }
 
     if (action !== "favorite") {
       return Response.json({ error: "Araç beğeni sistemi yıldız puanlamaya taşındı." }, { status: 410 });
     }
 
-    const supabase = createSupabaseServerClient({ userId });
+    await requireUser();
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("toggle_vehicle_favorite", {
       p_vehicle_id: vehicleId,
     });
 
     if (error) {
-      return Response.json({ error: "Favori güncellenemedi.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Favori güncellenemedi." }, { status: 500 });
     }
 
     const row = (Array.isArray(data) ? data[0] : data) as FavoriteStateRow | null;
@@ -74,7 +75,10 @@ export async function POST(request: Request) {
       favCount: Number(row?.favorite_count ?? 0),
       favoriteCount: Number(row?.favorite_count ?? 0),
     });
-  } catch {
+  } catch (error) {
+    const authResponse = authErrorResponse(error);
+    if (authResponse) return authResponse;
+
     return Response.json({ error: "Geçersiz istek." }, { status: 400 });
   }
 }

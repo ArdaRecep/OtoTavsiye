@@ -8,9 +8,8 @@ const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "i
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
-    const userId = String(formData.get("userId") ?? "");
     const file = formData.get("file");
-    const adminState = await getAdminState(userId);
+    const adminState = await getAdminState();
 
     if (!adminState.isAdmin) {
       return Response.json({ error: "Yetkin yok." }, { status: 403 });
@@ -28,7 +27,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Görsel en fazla 4 MB olabilir." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     await ensureBucket(supabase);
 
     const extension = getExtension(file);
@@ -40,7 +39,7 @@ export async function POST(request: Request) {
     });
 
     if (error) {
-      return Response.json({ error: "Görsel yüklenemedi.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Görsel yüklenemedi." }, { status: 500 });
     }
 
     const { data } = supabase.storage.from(BLOG_BUCKET).getPublicUrl(path);
@@ -51,7 +50,7 @@ export async function POST(request: Request) {
   }
 }
 
-async function ensureBucket(supabase: ReturnType<typeof createSupabaseServerClient>) {
+async function ensureBucket(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
   const { error } = await supabase.storage.getBucket(BLOG_BUCKET);
 
   if (!error) return;

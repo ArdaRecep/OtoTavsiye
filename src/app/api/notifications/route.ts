@@ -1,4 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/auth/require-user";
+import { authErrorResponse } from "@/lib/auth/handle-auth-error";
 import { NextRequest } from "next/server";
 
 export type NotificationRow = {
@@ -21,18 +23,13 @@ export type NotificationRow = {
 };
 
 /**
- * GET /api/notifications?userId=...
+ * GET /api/notifications
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const { searchParams } = request.nextUrl;
-    const userId = searchParams.get("userId");
+    const user = await requireUser();
 
-    if (!userId) {
-      return Response.json({ error: "userId gerekli." }, { status: 400 });
-    }
-
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     
     // Notifications joined with actor (users) and vehicle (vehicle_market_profiles)
     const { data, error } = await supabase
@@ -42,43 +39,43 @@ export async function GET(request: NextRequest) {
         actor:users!actor_id(username, avatar_url),
         vehicle:vehicle_market_profiles(make, model)
       `)
-      .eq("user_id", userId)
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(30);
 
     if (error) {
       return Response.json(
-        { error: "Bildirimler alınamadı.", details: error.message },
+        { error: "Bildirimler alınamadı." },
         { status: 500 },
       );
     }
 
     return Response.json({ notifications: data as unknown as NotificationRow[] });
   } catch (error) {
-    return Response.json({ error: "Geçersiz istek.", details: String(error) }, { status: 400 });
+    const authResponse = authErrorResponse(error);
+    if (authResponse) return authResponse;
+
+    return Response.json({ error: "Geçersiz istek." }, { status: 400 });
   }
 }
 
 /**
  * PATCH /api/notifications
- * body: { userId: string, markAllAsRead?: boolean, notificationIds?: string[] }
+ * body: { markAllAsRead?: boolean, notificationIds?: string[] }
  */
 export async function PATCH(request: NextRequest) {
   try {
+    const user = await requireUser();
     const body = await request.json();
-    const { userId, markAllAsRead, notificationIds } = body;
+    const { markAllAsRead, notificationIds } = body;
 
-    if (!userId) {
-      return Response.json({ error: "userId gerekli." }, { status: 400 });
-    }
-
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
 
     if (markAllAsRead) {
       const { error } = await supabase
         .from("notifications")
         .update({ is_read: true })
-        .eq("user_id", userId)
+        .eq("user_id", user.id)
         .eq("is_read", false);
 
       if (error) throw error;
@@ -86,7 +83,7 @@ export async function PATCH(request: NextRequest) {
       const { error } = await supabase
         .from("notifications")
         .update({ is_read: true })
-        .eq("user_id", userId)
+        .eq("user_id", user.id)
         .in("id", notificationIds);
 
       if (error) throw error;
@@ -94,6 +91,9 @@ export async function PATCH(request: NextRequest) {
 
     return Response.json({ success: true });
   } catch (error) {
-    return Response.json({ error: "Bildirimler güncellenemedi.", details: String(error) }, { status: 500 });
+    const authResponse = authErrorResponse(error);
+    if (authResponse) return authResponse;
+
+    return Response.json({ error: "Bildirimler güncellenemedi." }, { status: 500 });
   }
 }

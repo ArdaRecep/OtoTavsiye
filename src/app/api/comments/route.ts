@@ -1,4 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/auth/require-user";
+import { authErrorResponse } from "@/lib/auth/handle-auth-error";
 import { NextRequest } from "next/server";
 
 type CommentRpcRow = {
@@ -20,19 +22,18 @@ type CommentRpcRow = {
 export async function GET(request: NextRequest) {
   try {
     const vehicleId = request.nextUrl.searchParams.get("vehicleId");
-    const userId = request.nextUrl.searchParams.get("userId");
 
     if (!vehicleId) {
       return Response.json({ error: "vehicleId gerekli." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient({ userId });
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("get_vehicle_comments", {
       p_vehicle_id: vehicleId,
     });
 
     if (error) {
-      return Response.json({ error: "Yorumlar alınamadı.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Yorumlar alınamadı." }, { status: 500 });
     }
 
     const comments = ((data ?? []) as CommentRpcRow[]).map(normalizeCommentRow);
@@ -46,18 +47,18 @@ export async function GET(request: NextRequest) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { vehicleId, userId, content, parentId } = body as {
+    const { vehicleId, content, parentId } = body as {
       vehicleId?: string;
-      userId?: string;
       content?: string;
       parentId?: string | null;
     };
 
-    if (!vehicleId || !userId || !content?.trim()) {
-      return Response.json({ error: "vehicleId, userId ve content gerekli." }, { status: 400 });
+    if (!vehicleId || !content?.trim()) {
+      return Response.json({ error: "vehicleId ve content gerekli." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient({ userId });
+    await requireUser();
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("create_vehicle_comment", {
       p_vehicle_id: vehicleId,
       p_content: content,
@@ -65,13 +66,16 @@ export async function POST(request: Request) {
     });
 
     if (error) {
-      return Response.json({ error: "Yorum eklenemedi.", details: error.message }, { status: 500 });
+      return Response.json({ error: "Yorum eklenemedi." }, { status: 500 });
     }
 
     const row = Array.isArray(data) ? data[0] : data;
 
     return Response.json({ comment: row ? normalizeCommentRow(row as CommentRpcRow) : null }, { status: 201 });
-  } catch {
+  } catch (error) {
+    const authResponse = authErrorResponse(error);
+    if (authResponse) return authResponse;
+
     return Response.json({ error: "Geçersiz istek." }, { status: 400 });
   }
 }
