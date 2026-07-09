@@ -20,7 +20,6 @@ export function AuthModal({
   onAuthenticated: (user: ClientUser) => void;
 }) {
   const [mode, setMode] = useState<AuthMode>("register");
-  const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -31,7 +30,7 @@ export function AuthModal({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!email.trim() || !password.trim() || (mode === "register" && !username.trim())) return;
+    if (!username.trim() || !password.trim()) return;
 
     setIsLoading(true);
     setError(null);
@@ -42,7 +41,6 @@ export function AuthModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: mode,
-          email: email.trim(),
           username: username.trim(),
           password: password.trim(),
         }),
@@ -113,22 +111,12 @@ export function AuthModal({
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-3">
           <Input
-            label="E-posta"
-            value={email}
-            onChange={setEmail}
-            placeholder="ornek@email.com"
-            type="email"
-            autoComplete="email"
+            label="Kullanıcı adı"
+            value={username}
+            onChange={setUsername}
+            placeholder="Arda"
+            autoComplete="username"
           />
-          {mode === "register" ? (
-            <Input
-              label="Kullanıcı adı"
-              value={username}
-              onChange={setUsername}
-              placeholder="Arda"
-              autoComplete="username"
-            />
-          ) : null}
           <Input
             label="Şifre"
             value={password}
@@ -146,7 +134,7 @@ export function AuthModal({
 
           <button
             type="submit"
-            disabled={isLoading || !email.trim() || !password.trim() || (mode === "register" && !username.trim())}
+            disabled={isLoading || !username.trim() || !password.trim()}
             className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#014636] px-4 text-sm font-semibold text-white transition hover:bg-[#003a2d] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}

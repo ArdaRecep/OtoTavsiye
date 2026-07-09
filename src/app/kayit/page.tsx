@@ -2,23 +2,58 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { CarFront, Check, Eye, EyeOff, Loader2, Lock, Mail, Shield, Star, User, UserPlus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CarFront, Check, Eye, EyeOff, Loader2, Lock, Shield, Star, User, UserPlus } from "lucide-react";
 
 export default function KayitPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usernameStatus, setUsernameStatus] = useState<{
+    state: "idle" | "checking" | "available" | "taken" | "invalid";
+    message: string;
+  }>({ state: "idle", message: "" });
+
+  useEffect(() => {
+    const nextUsername = username.trim();
+
+    if (!nextUsername) {
+      setUsernameStatus({ state: "idle", message: "" });
+      return;
+    }
+
+    setUsernameStatus({ state: "checking", message: "Kontrol ediliyor..." });
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/auth/username?username=${encodeURIComponent(nextUsername)}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          setUsernameStatus({ state: "invalid", message: data.error ?? "Kullanıcı adı uygun değil." });
+          return;
+        }
+
+        setUsernameStatus({
+          state: data.available ? "available" : "taken",
+          message: data.message ?? (data.available ? "Bu kullanıcı adı uygun." : "Bu kullanıcı adı alınmış."),
+        });
+      } catch {
+        setUsernameStatus({ state: "invalid", message: "Kullanıcı adı kontrol edilemedi." });
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timeout);
+  }, [username]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
 
-    if (!username.trim() || !email.trim() || !password.trim()) return;
+    if (!username.trim() || !password.trim()) return;
 
     if (password !== passwordConfirm) {
       setError("Şifreler eşleşmiyor.");
@@ -40,7 +75,6 @@ export default function KayitPage() {
         body: JSON.stringify({
           action: "register",
           username: username.trim(),
-          email: email.trim(),
           password: password.trim(),
         }),
       });
@@ -49,11 +83,6 @@ export default function KayitPage() {
 
       if (!response.ok) {
         setError(data.error ?? "Kayıt başarısız.");
-        return;
-      }
-
-      if (data.requiresEmailConfirmation) {
-        setError("Kayıt oluşturuldu. Devam etmek için e-posta adresini doğrulamalısın.");
         return;
       }
 
@@ -124,7 +153,7 @@ export default function KayitPage() {
           {/* Desktop başlık */}
           <div className="mb-8 hidden lg:block">
             <h1 className="text-2xl font-bold text-[#0a1110]">Hesap oluşturun</h1>
-            <p className="mt-1.5 text-sm text-neutral-500">Hızlıca kayıt olun ve araç dünyasını keşfedin</p>
+            <p className="mt-1.5 text-sm text-neutral-500">Kullanıcı adı ve şifreyle hızlıca kayıt olun</p>
           </div>
 
           {/* Form Card */}
@@ -149,26 +178,19 @@ export default function KayitPage() {
                     className="h-11 w-full rounded-lg border border-neutral-200 bg-white pl-10 pr-4 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:bg-white focus:ring-2 focus:ring-emerald-100"
                   />
                 </div>
-              </div>
-
-              {/* E-posta */}
-              <div>
-                <label htmlFor="register-email" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                  E-posta
-                </label>
-                <div className="relative">
-                  <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                  <input
-                    id="register-email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="ornek@email.com"
-                    required
-                    autoComplete="email"
-                    className="h-11 w-full rounded-lg border border-neutral-200 bg-white pl-10 pr-4 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                  />
-                </div>
+                {usernameStatus.message ? (
+                  <p
+                    className={`mt-1 text-xs ${
+                      usernameStatus.state === "available"
+                        ? "text-emerald-600"
+                        : usernameStatus.state === "checking"
+                          ? "text-neutral-500"
+                          : "text-red-500"
+                    }`}
+                  >
+                    {usernameStatus.message}
+                  </p>
+                ) : null}
               </div>
 
               {/* Şifre */}
@@ -244,7 +266,7 @@ export default function KayitPage() {
               {/* Kayıt Butonu */}
               <button
                 type="submit"
-                disabled={isLoading || !username.trim() || !email.trim() || !passwordLongEnough || !passwordsMatch}
+                disabled={isLoading || usernameStatus.state !== "available" || !passwordLongEnough || !passwordsMatch}
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#014636] text-sm font-semibold text-white shadow-md shadow-emerald-900/10 transition hover:bg-[#003a2d] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isLoading ? (

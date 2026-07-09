@@ -1,6 +1,7 @@
 import { authErrorResponse } from "@/lib/auth/handle-auth-error";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { requireUser } from "@/lib/auth/require-user";
+import { assertCanPostComment, moderationErrorResponse } from "@/lib/auth/moderation";
 import {
   comparisonRpcErrorResponse,
   normalizeComparisonComment,
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
 export async function POST(request: Request, context: RouteContext) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const { comparisonId } = await context.params;
     const body = (await request.json()) as CreateCommentPayload;
     const content = typeof body.body === "string" ? body.body : typeof body.content === "string" ? body.content : "";
@@ -71,6 +72,8 @@ export async function POST(request: Request, context: RouteContext) {
     if (!comparisonId || !content.trim()) {
       return Response.json({ error: "comparisonId ve yorum gerekli." }, { status: 400 });
     }
+
+    await assertCanPostComment(user.id, content);
 
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("create_vehicle_comparison_comment", {
@@ -96,6 +99,8 @@ export async function POST(request: Request, context: RouteContext) {
   } catch (error) {
     const authResponse = authErrorResponse(error);
     if (authResponse) return authResponse;
+    const moderationResponse = moderationErrorResponse(error);
+    if (moderationResponse) return moderationResponse;
 
     return Response.json({ error: "Geçersiz istek." }, { status: 400 });
   }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Ban,
   BookOpen,
   ChevronLeft,
   ChevronRight,
@@ -15,6 +16,7 @@ import {
   Search,
   ShieldCheck,
   Trash2,
+  UserRound,
 } from "lucide-react";
 import type { BlogPostRow } from "@/app/api/blog/route";
 import { useAdminStatus } from "@/hooks/use-admin-status";
@@ -30,7 +32,6 @@ type AdminComment = {
   created_at: string;
   users?: {
     username: string;
-    email: string | null;
   } | null;
   vehicle?: {
     make?: string;
@@ -38,14 +39,26 @@ type AdminComment = {
   } | null;
 };
 
+type AdminUser = {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+  createdAt: string;
+  chatBannedUntil: string | null;
+  accessBanned: boolean;
+};
+
 export function AdminPage() {
   const { userId, isAdmin, isLoading: isAdminLoading } = useAdminStatus();
   const [posts, setPosts] = useState<BlogPostRow[]>([]);
   const [comments, setComments] = useState<AdminComment[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [commentSearch, setCommentSearch] = useState("");
   const [commentPage, setCommentPage] = useState(1);
+  const [userSearch, setUserSearch] = useState("");
+  const [banDaysByUser, setBanDaysByUser] = useState<Record<string, number>>({});
   const [editingPost, setEditingPost] = useState<BlogPostRow | null>(null);
   const [isCreatingPost, setIsCreatingPost] = useState(false);
 
@@ -56,17 +69,25 @@ export function AdminPage() {
     }
 
     setIsDataLoading(true);
-    const [postsResponse, commentsResponse] = await Promise.all([
+    const [postsResponse, commentsResponse, usersResponse] = await Promise.all([
       fetch("/api/blog?includeDrafts=true"),
       fetch("/api/admin/comments"),
+      fetch("/api/admin/users"),
     ]);
-    const [postsData, commentsData] = await Promise.all([postsResponse.json(), commentsResponse.json()]);
+    const [postsData, commentsData, usersData] = await Promise.all([
+      postsResponse.json(),
+      commentsResponse.json(),
+      usersResponse.json(),
+    ]);
 
     if (postsResponse.ok) {
       setPosts(postsData.posts ?? []);
     }
     if (commentsResponse.ok) {
       setComments(commentsData.comments ?? []);
+    }
+    if (usersResponse.ok) {
+      setUsers(usersData.users ?? []);
     }
     setIsDataLoading(false);
   }, [isAdmin, userId]);
@@ -91,7 +112,6 @@ export function AdminPage() {
       const haystack = [
         comment.content,
         comment.users?.username,
-        comment.users?.email,
         comment.vehicle?.make,
         comment.vehicle?.model,
       ]
@@ -108,6 +128,13 @@ export function AdminPage() {
     (commentPage - 1) * COMMENTS_PER_PAGE,
     commentPage * COMMENTS_PER_PAGE,
   );
+  const filteredUsers = useMemo(() => {
+    const query = userSearch.trim().toLocaleLowerCase("tr-TR");
+
+    if (!query) return users;
+
+    return users.filter((user) => user.username.toLocaleLowerCase("tr-TR").includes(query));
+  }, [userSearch, users]);
 
   async function deletePost(slug: string) {
     if (!userId) return;
@@ -153,6 +180,48 @@ export function AdminPage() {
       setComments((current) => current.filter((comment) => comment.id !== commentId));
       setMessage("Yorum silindi.");
     }
+  }
+
+  async function banUser(targetUserId: string, banType: "chat" | "access") {
+    if (!userId) return;
+
+    const response = await fetch("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: targetUserId,
+        banType,
+        days: banType === "chat" ? (banDaysByUser[targetUserId] ?? 1) : undefined,
+      }),
+    });
+
+    if (response.ok) {
+      setMessage(banType === "chat" ? "Sohbet banı uygulandı." : "Erişim banı uygulandı.");
+      await fetchAdminData();
+      return;
+    }
+
+    const data = await response.json().catch(() => null);
+    setMessage(data?.error ?? "Ban uygulanamadı.");
+  }
+
+  async function clearBan(targetUserId: string, banType: "chat" | "access") {
+    if (!userId) return;
+
+    const response = await fetch("/api/admin/users", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: targetUserId, banType }),
+    });
+
+    if (response.ok) {
+      setMessage("Ban kaldırıldı.");
+      await fetchAdminData();
+      return;
+    }
+
+    const data = await response.json().catch(() => null);
+    setMessage(data?.error ?? "Ban kaldırılamadı.");
   }
 
   function handleSavedPost(post: BlogPostRow) {
@@ -211,9 +280,9 @@ export function AdminPage() {
               <StatCard label="Blog" value={posts.length} icon={<BookOpen className="h-5 w-5" />} />
               <StatCard label="Yorum" value={comments.length} icon={<MessageCircle className="h-5 w-5" />} />
               <StatCard
-                label="Taslak"
-                value={posts.filter((post) => post.status === "draft").length}
-                icon={<Pencil className="h-5 w-5" />}
+                label="Kullanıcı"
+                value={users.length}
+                icon={<UserRound className="h-5 w-5" />}
               />
             </section>
 
@@ -270,6 +339,112 @@ export function AdminPage() {
                   ))
                 ) : (
                   <p className="py-6 text-sm text-neutral-500">Henüz blog yok.</p>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Ban className="h-5 w-5 text-[#014636]" />
+                    <h2 className="text-lg font-semibold">Kullanıcı banları</h2>
+                  </div>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Süreli sohbet banı veya cihaz/IP tabanlı erişim banı uygula.
+                  </p>
+                </div>
+                <div className="relative w-full lg:w-80">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    value={userSearch}
+                    onChange={(event) => setUserSearch(event.target.value)}
+                    placeholder="Kullanıcı ara"
+                    className="h-10 w-full rounded-md border border-neutral-300 pl-9 pr-3 text-sm outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 divide-y divide-neutral-100">
+                {filteredUsers.length ? (
+                  filteredUsers.map((item) => (
+                    <div key={item.id} className="flex flex-col gap-3 py-3 xl:flex-row xl:items-center xl:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-neutral-950">
+                          <span>{item.username}</span>
+                          {item.isAdmin ? (
+                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-[#014636]">Admin</span>
+                          ) : null}
+                          {item.chatBannedUntil ? (
+                            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
+                              Sohbet banlı
+                            </span>
+                          ) : null}
+                          {item.accessBanned ? (
+                            <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
+                              Erişim banlı
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 text-xs text-neutral-500">
+                          Kayıt: {formatDate(item.createdAt)}
+                          {item.chatBannedUntil ? ` · Sohbet banı bitiş: ${formatDate(item.chatBannedUntil)}` : ""}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={365}
+                          value={banDaysByUser[item.id] ?? 1}
+                          onChange={(event) =>
+                            setBanDaysByUser((current) => ({
+                              ...current,
+                              [item.id]: Number(event.target.value),
+                            }))
+                          }
+                          className="h-9 w-20 rounded-md border border-neutral-300 px-2 text-sm outline-none focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+                          aria-label={`${item.username} sohbet ban günü`}
+                        />
+                        <button
+                          type="button"
+                          disabled={item.isAdmin}
+                          onClick={() => banUser(item.id, "chat")}
+                          className="h-9 rounded-md border border-amber-200 px-3 text-sm font-semibold text-amber-700 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Sohbet banla
+                        </button>
+                        {item.chatBannedUntil ? (
+                          <button
+                            type="button"
+                            onClick={() => clearBan(item.id, "chat")}
+                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                          >
+                            Sohbet banını kaldır
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={item.isAdmin}
+                          onClick={() => banUser(item.id, "access")}
+                          className="h-9 rounded-md border border-red-100 px-3 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Erişim banı
+                        </button>
+                        {item.accessBanned ? (
+                          <button
+                            type="button"
+                            onClick={() => clearBan(item.id, "access")}
+                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                          >
+                            Erişim banını kaldır
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="py-6 text-sm text-neutral-500">Kullanıcı bulunamadı.</p>
                 )}
               </div>
             </section>
@@ -393,4 +568,11 @@ function LockedPanel({ title }: { title: string }) {
       </Link>
     </div>
   );
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("tr-TR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }

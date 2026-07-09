@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { requireUser } from "@/lib/auth/require-user";
 import { authErrorResponse } from "@/lib/auth/handle-auth-error";
+import { assertCanPostComment, moderationErrorResponse } from "@/lib/auth/moderation";
 import { NextRequest } from "next/server";
 
 type CommentRpcRow = {
@@ -57,7 +58,8 @@ export async function POST(request: Request) {
       return Response.json({ error: "vehicleId ve content gerekli." }, { status: 400 });
     }
 
-    await requireUser();
+    const user = await requireUser();
+    await assertCanPostComment(user.id, content);
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("create_vehicle_comment", {
       p_vehicle_id: vehicleId,
@@ -75,6 +77,8 @@ export async function POST(request: Request) {
   } catch (error) {
     const authResponse = authErrorResponse(error);
     if (authResponse) return authResponse;
+    const moderationResponse = moderationErrorResponse(error);
+    if (moderationResponse) return moderationResponse;
 
     return Response.json({ error: "Geçersiz istek." }, { status: 400 });
   }

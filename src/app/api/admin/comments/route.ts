@@ -10,10 +10,8 @@ type CommentAdminRow = {
   created_at: string;
   users?: {
     username: string;
-    email: string | null;
   } | {
     username: string;
-    email: string | null;
   }[] | null;
 };
 
@@ -34,7 +32,7 @@ export async function GET() {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("vehicle_comments")
-      .select("id, vehicle_id, parent_id, user_id, content, created_at, users:user_id(username, email)")
+      .select("id, vehicle_id, parent_id, user_id, content, created_at, users:user_id(username)")
       .order("created_at", { ascending: false })
       .limit(80);
 

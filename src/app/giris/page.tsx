@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { CarFront, Check, Eye, EyeOff, Loader2, LogIn, Lock, Mail, Shield, Star } from "lucide-react";
+import { CarFront, Check, Eye, EyeOff, Loader2, LogIn, Lock, Shield, Star, User } from "lucide-react";
 
 export default function GirisPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -16,7 +16,7 @@ export default function GirisPage() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
 
-    if (!email.trim() || !password.trim()) return;
+    if (!username.trim() || !password.trim()) return;
 
     setIsLoading(true);
     setError(null);
@@ -27,7 +27,7 @@ export default function GirisPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "login",
-          email: email.trim(),
+          username: username.trim(),
           password: password.trim(),
         }),
       });
@@ -103,27 +103,27 @@ export default function GirisPage() {
           {/* Desktop başlık */}
           <div className="mb-8 hidden lg:block">
             <h1 className="text-2xl font-bold text-[#0a1110]">Giriş yapın</h1>
-            <p className="mt-1.5 text-sm text-neutral-500">E-posta adresiniz ve şifrenizle devam edin</p>
+            <p className="mt-1.5 text-sm text-neutral-500">Kullanıcı adınız ve şifrenizle devam edin</p>
           </div>
 
           {/* Form Card */}
           <div className="rounded-3xl border border-white/70 bg-white/95 p-6 shadow-[0_24px_60px_-20px_rgba(1,70,54,0.35)] backdrop-blur-sm sm:p-8">
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* E-posta */}
+              {/* Kullanıcı adı */}
               <div>
-                <label htmlFor="login-email" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                  E-posta
+                <label htmlFor="login-username" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                  Kullanıcı adı
                 </label>
                 <div className="relative">
-                  <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                  <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
                   <input
-                    id="login-email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="ornek@email.com"
+                    id="login-username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Kullanıcı adınız"
                     required
-                    autoComplete="email"
+                    autoComplete="username"
                     className="h-11 w-full rounded-lg border border-neutral-200 bg-white pl-10 pr-4 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-[#014636] focus:bg-white focus:ring-2 focus:ring-emerald-100"
                   />
                 </div>
@@ -167,7 +167,7 @@ export default function GirisPage() {
               {/* Giriş Butonu */}
               <button
                 type="submit"
-                disabled={isLoading || !email.trim() || !password.trim()}
+                disabled={isLoading || !username.trim() || !password.trim()}
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#014636] text-sm font-semibold text-white shadow-md shadow-emerald-900/10 transition hover:bg-[#003a2d] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isLoading ? (

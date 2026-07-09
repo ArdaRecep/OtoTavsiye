@@ -1,5 +1,6 @@
 import { authErrorResponse } from "@/lib/auth/handle-auth-error";
 import { requireUser } from "@/lib/auth/require-user";
+import { assertCanPostComment, moderationErrorResponse } from "@/lib/auth/moderation";
 import {
   comparisonRpcErrorResponse,
   normalizeComparisonComment,
@@ -24,7 +25,7 @@ type DeleteCommentRpcRow = {
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const { commentId } = await context.params;
     const body = (await request.json()) as UpdateCommentPayload;
     const content = typeof body.body === "string" ? body.body : typeof body.content === "string" ? body.content : "";
@@ -32,6 +33,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (!commentId || !content.trim()) {
       return Response.json({ error: "commentId ve yorum gerekli." }, { status: 400 });
     }
+
+    await assertCanPostComment(user.id, content);
 
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("update_vehicle_comparison_comment", {
@@ -56,6 +59,8 @@ export async function PATCH(request: Request, context: RouteContext) {
   } catch (error) {
     const authResponse = authErrorResponse(error);
     if (authResponse) return authResponse;
+    const moderationResponse = moderationErrorResponse(error);
+    if (moderationResponse) return moderationResponse;
 
     return Response.json({ error: "Yorum güncellenemedi." }, { status: 400 });
   }
