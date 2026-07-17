@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Ban,
   BookOpen,
+  CarFront,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -21,13 +22,18 @@ import {
 import type { BlogPostRow } from "@/app/api/blog/route";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { BlogEditorModal } from "./blog-editor-modal";
+import { AdminVehicleManager } from "./admin-vehicle-manager";
+import { AdminModerationManager } from "./admin-moderation-manager";
+import { AdminUserModerationModal, type AdminModerationTarget } from "./admin-user-moderation-modal";
 
 
 const COMMENTS_PER_PAGE = 8;
+type AdminSection = "vehicles" | "blogs" | "users" | "bans" | "comments" | "moderation";
 
 type AdminComment = {
   id: string;
   vehicle_id: string;
+  user_id: string;
   content: string;
   created_at: string;
   users?: {
@@ -44,8 +50,23 @@ type AdminUser = {
   username: string;
   isAdmin: boolean;
   createdAt: string;
+  chatBanned: boolean;
   chatBannedUntil: string | null;
   accessBanned: boolean;
+  accessBannedUntil: string | null;
+  bans?: {
+    chat: AdminBanInfo | null;
+    access: AdminBanInfo | null;
+  };
+};
+
+type AdminBanInfo = {
+  id: string;
+  type: "chat" | "access";
+  expiresAt: string | null;
+  permanent: boolean;
+  reason: string | null;
+  createdAt: string;
 };
 
 export function AdminPage() {
@@ -58,9 +79,10 @@ export function AdminPage() {
   const [commentSearch, setCommentSearch] = useState("");
   const [commentPage, setCommentPage] = useState(1);
   const [userSearch, setUserSearch] = useState("");
-  const [banDaysByUser, setBanDaysByUser] = useState<Record<string, number>>({});
+  const [moderationTarget, setModerationTarget] = useState<AdminModerationTarget | null>(null);
   const [editingPost, setEditingPost] = useState<BlogPostRow | null>(null);
   const [isCreatingPost, setIsCreatingPost] = useState(false);
+  const [activeSection, setActiveSection] = useState<AdminSection>("vehicles");
 
   const fetchAdminData = useCallback(async () => {
     if (!userId || !isAdmin) {
@@ -69,27 +91,27 @@ export function AdminPage() {
     }
 
     setIsDataLoading(true);
-    const [postsResponse, commentsResponse, usersResponse] = await Promise.all([
-      fetch("/api/blog?includeDrafts=true"),
-      fetch("/api/admin/comments"),
-      fetch("/api/admin/users"),
-    ]);
-    const [postsData, commentsData, usersData] = await Promise.all([
-      postsResponse.json(),
-      commentsResponse.json(),
-      usersResponse.json(),
-    ]);
+    setMessage(null);
+    try {
+      const [postsResponse, commentsResponse, usersResponse] = await Promise.all([
+        fetch("/api/blog?includeDrafts=true"),
+        fetch("/api/admin/comments"),
+        fetch("/api/admin/users"),
+      ]);
+      const [postsData, commentsData, usersData] = await Promise.all([
+        postsResponse.json(), commentsResponse.json(), usersResponse.json(),
+      ]);
 
-    if (postsResponse.ok) {
-      setPosts(postsData.posts ?? []);
+      if (postsResponse.ok) setPosts(postsData.posts ?? []);
+      if (commentsResponse.ok) setComments(commentsData.comments ?? []);
+      if (usersResponse.ok) setUsers(usersData.users ?? []);
+      const firstError = [postsResponse.ok ? null : postsData.error, commentsResponse.ok ? null : commentsData.error, usersResponse.ok ? null : usersData.error].find(Boolean);
+      if (firstError) setMessage(firstError);
+    } catch {
+      setMessage("Yönetim verileri alınamadı. Sayfayı yenileyip tekrar dene.");
+    } finally {
+      setIsDataLoading(false);
     }
-    if (commentsResponse.ok) {
-      setComments(commentsData.comments ?? []);
-    }
-    if (usersResponse.ok) {
-      setUsers(usersData.users ?? []);
-    }
-    setIsDataLoading(false);
   }, [isAdmin, userId]);
 
   useEffect(() => {
@@ -135,6 +157,10 @@ export function AdminPage() {
 
     return users.filter((user) => user.username.toLocaleLowerCase("tr-TR").includes(query));
   }, [userSearch, users]);
+  const bannedUsers = useMemo(
+    () => filteredUsers.filter((user) => user.chatBanned || user.accessBanned),
+    [filteredUsers],
+  );
 
   async function deletePost(slug: string) {
     if (!userId) return;
@@ -169,6 +195,7 @@ export function AdminPage() {
 
   async function deleteComment(commentId: string) {
     if (!userId) return;
+    if (!window.confirm("Bu yorumu ve alt yanıtlarını silmek istiyor musun?")) return;
 
     const response = await fetch("/api/admin/comments", {
       method: "DELETE",
@@ -180,48 +207,6 @@ export function AdminPage() {
       setComments((current) => current.filter((comment) => comment.id !== commentId));
       setMessage("Yorum silindi.");
     }
-  }
-
-  async function banUser(targetUserId: string, banType: "chat" | "access") {
-    if (!userId) return;
-
-    const response = await fetch("/api/admin/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: targetUserId,
-        banType,
-        days: banType === "chat" ? (banDaysByUser[targetUserId] ?? 1) : undefined,
-      }),
-    });
-
-    if (response.ok) {
-      setMessage(banType === "chat" ? "Sohbet banı uygulandı." : "Erişim banı uygulandı.");
-      await fetchAdminData();
-      return;
-    }
-
-    const data = await response.json().catch(() => null);
-    setMessage(data?.error ?? "Ban uygulanamadı.");
-  }
-
-  async function clearBan(targetUserId: string, banType: "chat" | "access") {
-    if (!userId) return;
-
-    const response = await fetch("/api/admin/users", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: targetUserId, banType }),
-    });
-
-    if (response.ok) {
-      setMessage("Ban kaldırıldı.");
-      await fetchAdminData();
-      return;
-    }
-
-    const data = await response.json().catch(() => null);
-    setMessage(data?.error ?? "Ban kaldırılamadı.");
   }
 
   function handleSavedPost(post: BlogPostRow) {
@@ -244,10 +229,10 @@ export function AdminPage() {
               </div>
               <h1 className="mt-2 text-2xl font-semibold tracking-tight text-[#0a1110]">Yönetim paneli</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">
-                Blog içeriklerini ve yorum moderasyonunu tek yerden yönet.
+                Araç kataloğunu, topluluk güvenliğini, kullanıcıları ve yayınları tek yerden yönet.
               </p>
             </div>
-            {isAdmin ? (
+            {isAdmin && activeSection === "blogs" ? (
               <button
                 type="button"
                 onClick={() => setIsCreatingPost(true)}
@@ -280,13 +265,25 @@ export function AdminPage() {
               <StatCard label="Blog" value={posts.length} icon={<BookOpen className="h-5 w-5" />} />
               <StatCard label="Yorum" value={comments.length} icon={<MessageCircle className="h-5 w-5" />} />
               <StatCard
-                label="Kullanıcı"
-                value={users.length}
-                icon={<UserRound className="h-5 w-5" />}
+                label="Aktif yasaklı"
+                value={users.filter((user) => user.chatBanned || user.accessBanned).length}
+                icon={<Ban className="h-5 w-5" />}
               />
             </section>
 
-            <section className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
+            <nav className="flex gap-2 overflow-x-auto rounded-md border border-neutral-300 bg-white p-2 shadow-sm" aria-label="Admin bölümleri">
+              <AdminTab active={activeSection === "vehicles"} onClick={() => setActiveSection("vehicles")} icon={<CarFront className="h-4 w-4" />}>Araçlar</AdminTab>
+              <AdminTab active={activeSection === "blogs"} onClick={() => setActiveSection("blogs")} icon={<BookOpen className="h-4 w-4" />}>Bloglar</AdminTab>
+              <AdminTab active={activeSection === "users"} onClick={() => setActiveSection("users")} icon={<UserRound className="h-4 w-4" />}>Kullanıcılar</AdminTab>
+              <AdminTab active={activeSection === "bans"} onClick={() => setActiveSection("bans")} icon={<Ban className="h-4 w-4" />}>Yasaklılar</AdminTab>
+              <AdminTab active={activeSection === "comments"} onClick={() => setActiveSection("comments")} icon={<MessageCircle className="h-4 w-4" />}>Yorumlar</AdminTab>
+              <AdminTab active={activeSection === "moderation"} onClick={() => setActiveSection("moderation")} icon={<ShieldCheck className="h-4 w-4" />}>Moderasyon</AdminTab>
+            </nav>
+
+            {activeSection === "vehicles" ? <AdminVehicleManager /> : null}
+            {activeSection === "moderation" ? <AdminModerationManager /> : null}
+
+            <section className={`${activeSection === "blogs" ? "" : "hidden "}rounded-md border border-neutral-300 bg-white p-5 shadow-sm`}>
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">Bloglar</h2>
@@ -343,15 +340,15 @@ export function AdminPage() {
               </div>
             </section>
 
-            <section className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
+            <section className={`${activeSection === "users" ? "" : "hidden "}rounded-md border border-neutral-300 bg-white p-5 shadow-sm`}>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <Ban className="h-5 w-5 text-[#014636]" />
-                    <h2 className="text-lg font-semibold">Kullanıcı banları</h2>
+                    <UserRound className="h-5 w-5 text-[#014636]" />
+                    <h2 className="text-lg font-semibold">Kullanıcılar</h2>
                   </div>
                   <p className="mt-1 text-sm text-neutral-500">
-                    Süreli sohbet banı veya cihaz/IP tabanlı erişim banı uygula.
+                    Kullanıcı ara, profili incele ve gerekli moderasyon işlemini aç.
                   </p>
                 </div>
                 <div className="relative w-full lg:w-80">
@@ -375,7 +372,7 @@ export function AdminPage() {
                           {item.isAdmin ? (
                             <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-[#014636]">Admin</span>
                           ) : null}
-                          {item.chatBannedUntil ? (
+                          {item.chatBanned ? (
                             <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
                               Sohbet banlı
                             </span>
@@ -388,59 +385,11 @@ export function AdminPage() {
                         </div>
                         <div className="mt-1 text-xs text-neutral-500">
                           Kayıt: {formatDate(item.createdAt)}
-                          {item.chatBannedUntil ? ` · Sohbet banı bitiş: ${formatDate(item.chatBannedUntil)}` : ""}
+                          {item.chatBanned ? ` · Sohbet banı: ${item.chatBannedUntil ? formatDate(item.chatBannedUntil) : "Süresiz"}` : ""}
+                          {item.accessBanned ? ` · Erişim banı: ${item.accessBannedUntil ? formatDate(item.accessBannedUntil) : "Süresiz"}` : ""}
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <input
-                          type="number"
-                          min={1}
-                          max={365}
-                          value={banDaysByUser[item.id] ?? 1}
-                          onChange={(event) =>
-                            setBanDaysByUser((current) => ({
-                              ...current,
-                              [item.id]: Number(event.target.value),
-                            }))
-                          }
-                          className="h-9 w-20 rounded-md border border-neutral-300 px-2 text-sm outline-none focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
-                          aria-label={`${item.username} sohbet ban günü`}
-                        />
-                        <button
-                          type="button"
-                          disabled={item.isAdmin}
-                          onClick={() => banUser(item.id, "chat")}
-                          className="h-9 rounded-md border border-amber-200 px-3 text-sm font-semibold text-amber-700 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Sohbet banla
-                        </button>
-                        {item.chatBannedUntil ? (
-                          <button
-                            type="button"
-                            onClick={() => clearBan(item.id, "chat")}
-                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
-                          >
-                            Sohbet banını kaldır
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          disabled={item.isAdmin}
-                          onClick={() => banUser(item.id, "access")}
-                          className="h-9 rounded-md border border-red-100 px-3 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Erişim banı
-                        </button>
-                        {item.accessBanned ? (
-                          <button
-                            type="button"
-                            onClick={() => clearBan(item.id, "access")}
-                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
-                          >
-                            Erişim banını kaldır
-                          </button>
-                        ) : null}
-                      </div>
+                      <button type="button" disabled={item.isAdmin} onClick={() => setModerationTarget({ id: item.id, username: item.username, isAdmin: item.isAdmin })} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 px-3 text-sm font-semibold text-neutral-700 transition hover:border-[#014636]/40 hover:text-[#014636] disabled:cursor-not-allowed disabled:opacity-40"><ShieldCheck className="h-4 w-4" /> Yönet</button>
                     </div>
                   ))
                 ) : (
@@ -449,7 +398,64 @@ export function AdminPage() {
               </div>
             </section>
 
-            <section className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
+            <section className={`${activeSection === "bans" ? "" : "hidden "}rounded-md border border-neutral-300 bg-white p-5 shadow-sm`}>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Ban className="h-5 w-5 text-[#014636]" />
+                    <h2 className="text-lg font-semibold">Yasaklılar</h2>
+                  </div>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Aktif sohbet ve erişim banlarını ayrı takip et.
+                  </p>
+                </div>
+                <div className="relative w-full lg:w-80">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    value={userSearch}
+                    onChange={(event) => setUserSearch(event.target.value)}
+                    placeholder="Yasaklı kullanıcı ara"
+                    className="h-10 w-full rounded-md border border-neutral-300 pl-9 pr-3 text-sm outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                {bannedUsers.length ? (
+                  bannedUsers.map((item) => (
+                    <div key={item.id} className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-neutral-950">
+                            <span>{item.username}</span>
+                            {item.chatBanned ? <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">Sohbet banı</span> : null}
+                            {item.accessBanned ? <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-600">Erişim banı</span> : null}
+                          </div>
+                          <div className="mt-2 space-y-1 text-xs text-neutral-500">
+                            {item.chatBanned ? <p>Sohbet: {item.chatBannedUntil ? formatDate(item.chatBannedUntil) : "Süresiz"}{item.bans?.chat?.reason ? ` · ${item.bans.chat.reason}` : ""}</p> : null}
+                            {item.accessBanned ? <p>Erişim: {item.accessBannedUntil ? formatDate(item.accessBannedUntil) : "Süresiz"}{item.bans?.access?.reason ? ` · ${item.bans.access.reason}` : ""}</p> : null}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setModerationTarget({ id: item.id, username: item.username, isAdmin: item.isAdmin })}
+                          className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-3 text-sm font-semibold text-neutral-700 transition hover:border-[#014636]/40 hover:text-[#014636]"
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                          Yönet
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-md border border-dashed border-neutral-300 bg-white p-8 text-center text-sm text-neutral-500 lg:col-span-2">
+                    Aktif yasaklı kullanıcı bulunamadı.
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className={`${activeSection === "comments" ? "" : "hidden "}rounded-md border border-neutral-300 bg-white p-5 shadow-sm`}>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
@@ -477,7 +483,7 @@ export function AdminPage() {
                     <div key={comment.id} className="flex flex-col gap-3 py-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-neutral-950">
-                          {comment.users?.username ?? "Kullanıcı"} ·{" "}
+                          <button type="button" onClick={() => setModerationTarget({ id: comment.user_id, username: comment.users?.username ?? "Kullanıcı" })} className="hover:text-[#014636] hover:underline">{comment.users?.username ?? "Kullanıcı"}</button> ·{" "}
                           <Link href={`/cars/${comment.vehicle_id}`} className="text-[#014636] hover:underline">
                             {comment.vehicle?.make ?? "Araç"} {comment.vehicle?.model ?? ""}
                           </Link>
@@ -538,6 +544,7 @@ export function AdminPage() {
           }}
           onSaved={handleSavedPost}
         />
+        <AdminUserModerationModal target={moderationTarget} onClose={() => setModerationTarget(null)} onUpdated={fetchAdminData} />
       </main>
     </>
   );
@@ -552,6 +559,14 @@ function StatCard({ label, value, icon }: { label: string; value: number; icon: 
       </div>
       <div className="mt-2 text-2xl font-semibold text-neutral-950">{value}</div>
     </div>
+  );
+}
+
+function AdminTab({ active, onClick, icon, children }: { active: boolean; onClick: () => void; icon: ReactNode; children: string }) {
+  return (
+    <button type="button" onClick={onClick} className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-md px-4 text-sm font-semibold transition ${active ? "bg-[#014636] text-white" : "text-neutral-600 hover:bg-neutral-100"}`}>
+      {icon}{children}
+    </button>
   );
 }
 

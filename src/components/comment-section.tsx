@@ -4,17 +4,22 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import {
   ChevronDown,
   ChevronRight,
+  Check,
   CornerDownRight,
   Loader2,
   MessageCircle,
+  Pencil,
   Send,
   Trash2,
   ThumbsDown,
   ThumbsUp,
+  X,
 } from "lucide-react";
 import { useAdminStatus } from "@/hooks/use-admin-status";
-import { useCurrentUser } from "@/lib/auth/client-user";
+import { useCurrentUser, type ClientUser } from "@/lib/auth/client-user";
 import { AuthModal } from "./auth-modal";
+import { AdminUserModerationModal, type AdminModerationTarget } from "./admin-user-moderation-modal";
+import { CommunityImageGallery } from "./community-image-gallery";
 
 type CommentData = {
   id: string;
@@ -32,6 +37,7 @@ type CommentData = {
   userInteraction: "like" | "dislike" | null;
   replyCount: number;
   authorCarRating: number | null;
+  imageUrls: string[];
   replies: CommentData[];
 };
 
@@ -56,6 +62,7 @@ type ComparisonCommentApiRow = {
   userInteraction?: "like" | "dislike" | null;
   replyCount?: number;
   authorCarRating?: number | null;
+  imageUrls?: string[];
   replies?: ComparisonCommentApiRow[];
 };
 
@@ -64,6 +71,8 @@ type PendingComment = {
   parentId: string | null;
   clearDraft: () => void;
 };
+
+type CommentSource = "vehicle" | "comparison" | "community";
 
 const MAX_VISUAL_DEPTH = 4;
 
@@ -75,14 +84,20 @@ export function ComparisonCommentSection({ comparisonId, className }: { comparis
   return <ThreadedCommentSection sourceType="comparison" sourceId={comparisonId} className={className} />;
 }
 
+export function CommunityCommentSection({ threadId, isClosed = false, className }: { threadId: string; isClosed?: boolean; className?: string }) {
+  return <ThreadedCommentSection sourceType="community" sourceId={threadId} className={className} readOnly={isClosed} />;
+}
+
 function ThreadedCommentSection({
   sourceType,
   sourceId,
   className,
+  readOnly = false,
 }: {
-  sourceType: "vehicle" | "comparison";
+  sourceType: CommentSource;
   sourceId: string;
   className?: string;
+  readOnly?: boolean;
 }) {
   const [comments, setComments] = useState<CommentData[]>([]);
   const [total, setTotal] = useState(0);
@@ -94,6 +109,7 @@ function ThreadedCommentSection({
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [moderationTarget, setModerationTarget] = useState<AdminModerationTarget | null>(null);
   const hasLoadedRef = useRef(false);
   const { userId: adminUserId, isAdmin } = useAdminStatus();
   const { user, userId: currentUserId, mutate: mutateCurrentUser } = useCurrentUser();
@@ -108,9 +124,9 @@ function ThreadedCommentSection({
       if (!response.ok) return;
 
       const data = await response.json();
-      const flatComments = sourceType === "vehicle"
-        ? ((data.comments ?? []) as CommentApiRow[])
-        : ((data.comments ?? []) as ComparisonCommentApiRow[]).map(mapComparisonCommentRow);
+      const flatComments = sourceType === "comparison"
+        ? ((data.comments ?? []) as ComparisonCommentApiRow[]).map(mapComparisonCommentRow)
+        : ((data.comments ?? []) as CommentApiRow[]);
 
       setComments(buildCommentTree(flatComments));
       setTotal(data.total ?? flatComments.length);
@@ -221,22 +237,23 @@ function ThreadedCommentSection({
     }
   }
 
-  async function handleAuthSuccess() {
-    await mutateCurrentUser();
+  async function handleAuthSuccess(authenticatedUser: ClientUser) {
+    const queuedComment = pendingComment;
+    setIsAuthOpen(false);
+    setPendingComment(null);
+    await mutateCurrentUser({ user: authenticatedUser }, { revalidate: false });
 
-    if (!pendingComment) {
-      setIsAuthOpen(false);
+    if (!queuedComment) {
       await fetchComments();
       return;
     }
 
     try {
-      await submitComment(pendingComment.content, pendingComment.parentId);
-      pendingComment.clearDraft();
-      setPendingComment(null);
-      setIsAuthOpen(false);
-    } catch {
-      setNotice("Giriş tamamlandı ama yorum gönderilemedi. Lütfen tekrar dene.");
+      await submitComment(queuedComment.content, queuedComment.parentId);
+      queuedComment.clearDraft();
+      setNotice("Yorumun gönderildi.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Giriş tamamlandı ama yorum gönderilemedi. Lütfen tekrar dene.");
     }
   }
 
@@ -253,6 +270,19 @@ function ThreadedCommentSection({
       setNotice("Yorum silindi.");
       await fetchComments();
     }
+  }
+
+  async function handleUpdateComment(commentId: string, content: string) {
+    if (sourceType !== "community") return;
+    const response = await fetch(`/api/community-comments/${commentId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error ?? "Yorum güncellenemedi.");
+    setComments((current) => updateCommentInTree(current, commentId, (comment) => ({ ...comment, content })));
+    setNotice("Yorum güncellendi.");
   }
 
   function toggleReplies(commentId: string) {
@@ -291,14 +321,18 @@ function ThreadedCommentSection({
         )}
       </div>
 
-      <div className="mt-6">
-        <CommentForm
-          currentUserName={currentUserName}
-          onSubmit={(content, clearDraft) => handleSubmitComment(content, null, clearDraft)}
-          placeholder={sourceType === "vehicle" ? "Bu araç hakkında düşüncelerinizi paylaşın..." : "Bu karşılaştırma hakkında düşüncelerinizi paylaşın..."}
-          submitLabel="Yorum yap"
-        />
-      </div>
+      {readOnly ? (
+        <div className="mt-5 rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-semibold text-neutral-600">Bu konu yeni yanıtlara kapalı.</div>
+      ) : (
+        <div className="mt-6">
+          <CommentForm
+            currentUserName={currentUserName}
+            onSubmit={(content, clearDraft) => handleSubmitComment(content, null, clearDraft)}
+            placeholder={sourceType === "vehicle" ? "Bu araç hakkında düşüncelerinizi paylaşın..." : sourceType === "comparison" ? "Bu karşılaştırma hakkında düşüncelerinizi paylaşın..." : "Deneyimini veya önerini paylaş..."}
+            submitLabel="Yorum yap"
+          />
+        </div>
+      )}
 
       {notice ? (
         <div className="mt-3 rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-semibold text-[#014636]">
@@ -328,6 +362,7 @@ function ThreadedCommentSection({
               currentUserId={currentUserId ?? ""}
               currentUserName={currentUserName}
               isAdmin={isAdmin}
+              canReply={!readOnly}
               replyingTo={replyingTo}
               collapsedIds={collapsedIds}
               pendingReactionIds={pendingReactionIds}
@@ -339,8 +374,11 @@ function ThreadedCommentSection({
               onSubmitReply={(content, parentId, clearDraft) =>
                 handleSubmitComment(content, parentId, clearDraft)
               }
+              onAdminUserClick={(target) => setModerationTarget(target)}
               onDeleteComment={handleDeleteComment}
+              onUpdateComment={handleUpdateComment}
               onToggleInteraction={handleToggleInteraction}
+              canEditComments={sourceType === "community"}
             />
           ))
         )}
@@ -354,6 +392,7 @@ function ThreadedCommentSection({
         }}
         onAuthenticated={handleAuthSuccess}
       />
+      <AdminUserModerationModal target={moderationTarget} onClose={() => setModerationTarget(null)} />
     </section>
   );
 }
@@ -363,6 +402,7 @@ function CommentThread({
   currentUserId,
   currentUserName,
   isAdmin,
+  canReply,
   replyingTo,
   collapsedIds,
   pendingReactionIds,
@@ -372,12 +412,16 @@ function CommentThread({
   onToggleReplies,
   onSubmitReply,
   onDeleteComment,
+  onUpdateComment,
   onToggleInteraction,
+  onAdminUserClick,
+  canEditComments,
 }: {
   comment: CommentData;
   currentUserId: string;
   currentUserName: string;
   isAdmin: boolean;
+  canReply: boolean;
   replyingTo: string | null;
   collapsedIds: Set<string>;
   pendingReactionIds: Set<string>;
@@ -387,11 +431,15 @@ function CommentThread({
   onToggleReplies: (commentId: string) => void;
   onSubmitReply: (content: string, parentId: string, clearDraft: () => void) => Promise<void>;
   onDeleteComment: (commentId: string) => void;
+  onUpdateComment: (commentId: string, content: string) => Promise<void>;
   onToggleInteraction: (commentId: string, action: "like" | "dislike") => void;
+  onAdminUserClick: (target: AdminModerationTarget) => void;
+  canEditComments: boolean;
 }) {
   const replyCount = Math.max(comment.replyCount ?? 0, comment.replies.length);
   const isCollapsed = collapsedIds.has(comment.id);
   const indent = depth > 0 && depth <= MAX_VISUAL_DEPTH ? 12 : 0;
+  const isDeleted = isDeletedComment(comment);
 
   return (
     <div
@@ -401,20 +449,22 @@ function CommentThread({
       <CommentBubble
         comment={comment}
         isOwn={comment.user_id === currentUserId}
-        canDelete={isAdmin}
+        canDelete={isAdmin && !isDeleted}
         depth={depth}
         parentUsername={parentUsername}
         replyCount={replyCount}
         repliesCollapsed={isCollapsed}
         isReactionPending={pendingReactionIds.has(comment.id)}
-        onReplyClick={() => onReplyClick(comment.id)}
+        onReplyClick={canReply && !isDeleted ? () => onReplyClick(comment.id) : undefined}
         onToggleReplies={() => onToggleReplies(comment.id)}
-        onDelete={() => onDeleteComment(comment.id)}
+        onDelete={!isDeleted ? () => onDeleteComment(comment.id) : undefined}
+        onUpdate={canEditComments && comment.user_id === currentUserId && !isDeleted ? (content) => onUpdateComment(comment.id, content) : undefined}
         isReplyOpen={replyingTo === comment.id}
         onToggleInteraction={onToggleInteraction}
+        onAdminUserClick={isAdmin ? () => onAdminUserClick({ id: comment.user_id, username: comment.user.username }) : undefined}
       />
 
-      {replyingTo === comment.id ? (
+      {replyingTo === comment.id && !isDeleted ? (
         <div className="mb-3 ml-9 rounded-md border border-emerald-100 bg-emerald-50/45 p-3">
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-[#014636]">
             <CornerDownRight className="h-3 w-3" />
@@ -441,6 +491,7 @@ function CommentThread({
               currentUserId={currentUserId}
               currentUserName={currentUserName}
               isAdmin={isAdmin}
+              canReply={canReply}
               replyingTo={replyingTo}
               collapsedIds={collapsedIds}
               pendingReactionIds={pendingReactionIds}
@@ -450,7 +501,10 @@ function CommentThread({
               onToggleReplies={onToggleReplies}
               onSubmitReply={onSubmitReply}
               onDeleteComment={onDeleteComment}
+              onUpdateComment={onUpdateComment}
               onToggleInteraction={onToggleInteraction}
+              onAdminUserClick={onAdminUserClick}
+              canEditComments={canEditComments}
             />
           ))}
         </div>
@@ -471,8 +525,10 @@ function CommentBubble({
   onReplyClick,
   onToggleReplies,
   onDelete,
+  onUpdate,
   isReplyOpen,
   onToggleInteraction,
+  onAdminUserClick,
 }: {
   comment: CommentData;
   isOwn: boolean;
@@ -482,22 +538,53 @@ function CommentBubble({
   replyCount: number;
   repliesCollapsed: boolean;
   isReactionPending: boolean;
-  onReplyClick: () => void;
+  onReplyClick?: () => void;
   onToggleReplies: () => void;
   onDelete?: () => void;
+  onUpdate?: (content: string) => Promise<void>;
   isReplyOpen?: boolean;
   onToggleInteraction: (commentId: string, action: "like" | "dislike") => void;
+  onAdminUserClick?: () => void;
 }) {
   const username = comment.user?.username ?? "Anonim";
   const avatarUrl = comment.user?.avatar_url;
-  const initial = username.charAt(0).toUpperCase();
+  const isDeleted = isDeletedComment(comment);
+  const initial = isDeleted ? "" : username.charAt(0).toUpperCase();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(comment.content);
+  const [isSaving, setIsSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  async function submitEdit(event: FormEvent) {
+    event.preventDefault();
+    const nextContent = draft.trim();
+    if (!nextContent || nextContent === comment.content || !onUpdate) {
+      setIsEditing(false);
+      setDraft(comment.content);
+      return;
+    }
+    setIsSaving(true);
+    setEditError(null);
+    try {
+      await onUpdate(nextContent);
+      setIsEditing(false);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : "Yorum güncellenemedi.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <div id={`comment-${comment.id}`} className="flex gap-3 rounded-md px-1 py-3 transition hover:bg-neutral-50/70">
-      {avatarUrl ? (
+      {avatarUrl && !isDeleted ? (
         <img
           src={avatarUrl}
           alt={username}
+          width={32}
+          height={32}
+          loading="lazy"
+          decoding="async"
           className="h-8 w-8 shrink-0 rounded-full object-cover"
         />
       ) : (
@@ -513,15 +600,13 @@ function CommentBubble({
       )}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-neutral-900">
-            {username}
-          </span>
-          {isOwn ? (
+          {!isDeleted && onAdminUserClick ? <button type="button" onClick={onAdminUserClick} className="text-sm font-semibold text-neutral-900 hover:text-[#014636] hover:underline">{username}</button> : <span className="text-sm font-semibold text-neutral-900">{isDeleted ? "Silinmiş yorum" : username}</span>}
+          {isOwn && !isDeleted ? (
             <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-[#014636]">
               Siz
             </span>
           ) : null}
-          {comment.authorCarRating !== null ? (
+          {comment.authorCarRating !== null && !isDeleted ? (
             <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
               {comment.authorCarRating.toFixed(1)} ★
             </span>
@@ -537,12 +622,26 @@ function CommentBubble({
           </div>
         ) : null}
 
-        <p className="mt-1 whitespace-pre-line text-sm leading-6 text-neutral-700">
-          {comment.content}
-        </p>
+        {isEditing ? (
+          <form onSubmit={submitEdit} className="mt-2 space-y-2">
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={1000} rows={3} required className="w-full resize-y rounded-md border border-neutral-300 bg-white p-3 text-sm leading-6 outline-none focus:border-[#014636] focus:ring-2 focus:ring-emerald-100" />
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="submit" disabled={isSaving || !draft.trim()} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#014636] px-3 text-xs font-semibold text-white disabled:opacity-50">{isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Kaydet</button>
+              <button type="button" disabled={isSaving} onClick={() => { setIsEditing(false); setDraft(comment.content); setEditError(null); }} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-xs font-semibold text-neutral-600 disabled:opacity-50"><X className="h-3.5 w-3.5" /> Vazgeç</button>
+            </div>
+            {editError ? <p className="text-xs font-medium text-red-600">{editError}</p> : null}
+          </form>
+        ) : (
+          <>
+            <p className={`mt-1 whitespace-pre-line text-sm leading-6 ${isDeleted ? "italic text-neutral-400" : "text-neutral-700"}`}>
+              {comment.content}
+            </p>
+            {!isDeleted ? <CommunityImageGallery images={comment.imageUrls} compact /> : null}
+          </>
+        )}
 
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1.5 border-r border-neutral-200 pr-3">
+          {!isDeleted ? <div className="flex items-center gap-1.5 border-r border-neutral-200 pr-3">
             <button
               type="button"
               onClick={() => onToggleInteraction(comment.id, "like")}
@@ -570,20 +669,31 @@ function CommentBubble({
               {comment.dislikeCount > 0 ? <span>{comment.dislikeCount}</span> : null}
             </button>
             {isReactionPending ? <Loader2 className="h-3 w-3 animate-spin text-neutral-400" /> : null}
-          </div>
+          </div> : null}
 
-          <button
-            type="button"
-            onClick={onReplyClick}
-            className={`inline-flex items-center gap-1.5 text-xs font-semibold transition ${
-              isReplyOpen
-                ? "text-[#014636]"
-                : "text-neutral-500 hover:text-[#014636]"
-            }`}
-          >
-            <CornerDownRight className="h-3 w-3" />
-            Yanıtla
-          </button>
+          {onReplyClick && !isDeleted ? (
+            <button
+              type="button"
+              onClick={onReplyClick}
+              className={`inline-flex items-center gap-1.5 text-xs font-semibold transition ${
+                isReplyOpen ? "text-[#014636]" : "text-neutral-500 hover:text-[#014636]"
+              }`}
+            >
+              <CornerDownRight className="h-3 w-3" />
+              Yanıtla
+            </button>
+          ) : null}
+
+          {onUpdate && !isEditing && !isDeleted ? (
+            <button
+              type="button"
+              onClick={() => { setDraft(comment.content); setIsEditing(true); setEditError(null); }}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-500 transition hover:text-[#014636]"
+            >
+              <Pencil className="h-3 w-3" />
+              Düzenle
+            </button>
+          ) : null}
 
           {replyCount > 0 ? (
             <button
@@ -599,7 +709,7 @@ function CommentBubble({
             </button>
           ) : null}
 
-          {canDelete && onDelete ? (
+          {canDelete && onDelete && !isDeleted ? (
             <button
               type="button"
               onClick={onDelete}
@@ -696,22 +806,23 @@ function CommentForm({
   );
 }
 
-function getCommentsUrl(sourceType: "vehicle" | "comparison", sourceId: string) {
+function getCommentsUrl(sourceType: CommentSource, sourceId: string) {
   if (sourceType === "vehicle") {
     const params = new URLSearchParams({ vehicleId: sourceId });
 
     return `/api/comments?${params.toString()}`;
   }
 
-  return `/api/comparisons/${sourceId}/comments`;
+  return sourceType === "comparison" ? `/api/comparisons/${sourceId}/comments` : `/api/community/${sourceId}/comments`;
 }
 
-function getCreateCommentUrl(sourceType: "vehicle" | "comparison", sourceId: string) {
-  return sourceType === "vehicle" ? "/api/comments" : `/api/comparisons/${sourceId}/comments`;
+function getCreateCommentUrl(sourceType: CommentSource, sourceId: string) {
+  if (sourceType === "vehicle") return "/api/comments";
+  return sourceType === "comparison" ? `/api/comparisons/${sourceId}/comments` : `/api/community/${sourceId}/comments`;
 }
 
 function getCreateCommentPayload(
-  sourceType: "vehicle" | "comparison",
+  sourceType: CommentSource,
   sourceId: string,
   content: string,
   parentId: string | null,
@@ -724,18 +835,17 @@ function getCreateCommentPayload(
     };
   }
 
-  return {
-    content,
-    parentId,
-  };
+  return { content, parentId };
 }
 
-function getInteractionUrl(sourceType: "vehicle" | "comparison") {
-  return sourceType === "vehicle" ? "/api/comment-interactions" : "/api/comparison-comment-interactions";
+function getInteractionUrl(sourceType: CommentSource) {
+  if (sourceType === "vehicle") return "/api/comment-interactions";
+  return sourceType === "comparison" ? "/api/comparison-comment-interactions" : "/api/community-comment-interactions";
 }
 
-function getDeleteCommentUrl(sourceType: "vehicle" | "comparison", commentId: string) {
-  return sourceType === "vehicle" ? "/api/admin/comments" : `/api/comparison-comments/${commentId}`;
+function getDeleteCommentUrl(sourceType: CommentSource, commentId: string) {
+  if (sourceType === "vehicle") return "/api/admin/comments";
+  return sourceType === "comparison" ? `/api/comparison-comments/${commentId}` : `/api/community-comments/${commentId}`;
 }
 
 function mapComparisonCommentRow(row: ComparisonCommentApiRow): CommentApiRow {
@@ -755,6 +865,7 @@ function mapComparisonCommentRow(row: ComparisonCommentApiRow): CommentApiRow {
     userInteraction: row.userInteraction ?? null,
     replyCount: Number(row.replyCount ?? 0),
     authorCarRating: row.authorCarRating === null || row.authorCarRating === undefined ? null : Number(row.authorCarRating),
+    imageUrls: row.imageUrls ?? [],
     replies: Array.isArray(row.replies) ? row.replies.map(mapComparisonCommentData) : [],
   };
 }
@@ -769,7 +880,7 @@ function mapComparisonCommentData(row: ComparisonCommentApiRow): CommentData {
 }
 
 function normalizeCreatedComment(
-  sourceType: "vehicle" | "comparison",
+  sourceType: CommentSource,
   comment: CommentApiRow | ComparisonCommentApiRow,
 ): CommentData {
   if (sourceType === "comparison") {
@@ -785,6 +896,7 @@ function normalizeCreatedComment(
     dislikeCount: Number(row.dislikeCount ?? 0),
     replyCount: Number(row.replyCount ?? 0),
     authorCarRating: row.authorCarRating === null || row.authorCarRating === undefined ? null : Number(row.authorCarRating),
+    imageUrls: row.imageUrls ?? [],
     replies: Array.isArray(row.replies) ? row.replies : [],
   };
 }
@@ -854,6 +966,7 @@ function buildCommentTree(flatComments: CommentApiRow[]): CommentData[] {
       dislikeCount: Number(row.dislikeCount ?? 0),
       replyCount: Number(row.replyCount ?? 0),
       authorCarRating: row.authorCarRating === null || row.authorCarRating === undefined ? null : Number(row.authorCarRating),
+      imageUrls: row.imageUrls ?? [],
       replies: nestedReplies.map((reply) => ({
         ...reply,
         parent_id: reply.parent_id ?? row.id,
@@ -861,6 +974,7 @@ function buildCommentTree(flatComments: CommentApiRow[]): CommentData[] {
         dislikeCount: Number(reply.dislikeCount ?? 0),
         replyCount: Number(reply.replyCount ?? 0),
         authorCarRating: reply.authorCarRating === null || reply.authorCarRating === undefined ? null : Number(reply.authorCarRating),
+        imageUrls: reply.imageUrls ?? [],
         replies: Array.isArray(reply.replies) ? reply.replies : [],
       })),
     });
@@ -912,6 +1026,10 @@ function sortRepliesOldest(comments: CommentData[]): CommentData[] {
       ...comment,
       replies: sortRepliesOldest(comment.replies),
     }));
+}
+
+function isDeletedComment(comment: Pick<CommentData, "content">) {
+  return comment.content.trim() === "[silindi]";
 }
 
 function updateCommentInTree(

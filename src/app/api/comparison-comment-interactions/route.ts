@@ -1,6 +1,7 @@
 import { authErrorResponse } from "@/lib/auth/handle-auth-error";
 import { requireUser } from "@/lib/auth/require-user";
 import { comparisonRpcErrorResponse } from "@/lib/comparisons/types";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 type ComparisonCommentReactionRow = {
@@ -22,6 +23,17 @@ export async function POST(request: Request) {
     }
 
     await requireUser();
+    const admin = createSupabaseAdminClient();
+    const { data: comment } = await admin
+      .from("vehicle_comparison_comments")
+      .select("deleted_at")
+      .eq("id", commentId)
+      .maybeSingle<{ deleted_at: string | null }>();
+
+    if (!comment || comment.deleted_at) {
+      return Response.json({ error: "Yorum bulunamadı." }, { status: 404 });
+    }
+
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("toggle_vehicle_comparison_comment_reaction", {
       p_comment_id: commentId,

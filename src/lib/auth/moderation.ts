@@ -116,6 +116,10 @@ export async function assertUserCanLogin(userId: string) {
 }
 
 export async function assertCanPostComment(userId: string, content: string) {
+  if (await hasActiveUserBan(userId, "access")) {
+    throw new AccessBannedError();
+  }
+
   const chatBan = await getActiveUserBan(userId, "chat");
 
   if (chatBan) {
@@ -183,11 +187,8 @@ async function findForbiddenWord(content: string) {
 
   if (error) return null;
 
-  const normalizedContent = normalizeModerationText(content);
-
   for (const row of (data ?? []) as ForbiddenWordRow[]) {
-    const normalizedWord = normalizeModerationText(row.word);
-    if (normalizedWord && normalizedContent.includes(normalizedWord)) {
+    if (containsForbiddenWord(content, row.word)) {
       return row.word;
     }
   }
@@ -208,11 +209,29 @@ function isSafeDeviceId(value: string) {
   return /^[a-f0-9-]{16,64}$/i.test(value);
 }
 
-function normalizeModerationText(value: string) {
+function foldModerationText(value: string) {
   return value
     .toLocaleLowerCase("tr-TR")
-    .normalize("NFKC")
-    .replace(/[^\p{L}\p{N}]+/gu, "");
+    .replace(/ı/g, "i")
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "");
+}
+
+function containsForbiddenWord(content: string, forbiddenWord: string) {
+  const foldedContent = foldModerationText(content);
+  const foldedWord = foldModerationText(forbiddenWord).replace(/[^a-z0-9]+/g, "");
+  if (!foldedWord) return false;
+
+  const obfuscationTolerantWord = foldedWord
+    .split("")
+    .map(escapeRegex)
+    .join("[^a-z0-9]*");
+  const pattern = new RegExp(`(^|[^a-z0-9])${obfuscationTolerantWord}($|[^a-z0-9])`, "i");
+  return pattern.test(foldedContent);
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function formatBanUntil(value: string) {

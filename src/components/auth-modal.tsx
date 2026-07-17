@@ -17,7 +17,7 @@ export function AuthModal({
   title?: string;
   description?: string;
   onClose: () => void;
-  onAuthenticated: (user: ClientUser) => void;
+  onAuthenticated: (user: ClientUser) => void | Promise<void>;
 }) {
   const [mode, setMode] = useState<AuthMode>("register");
   const [username, setUsername] = useState("");
@@ -59,7 +59,7 @@ export function AuthModal({
         isAdmin: Boolean(data.user.isAdmin),
       };
 
-      onAuthenticated(user);
+      await onAuthenticated(user);
     } catch (err) {
       setError(err instanceof Error ? err.message : "İşlem tamamlanamadı.");
     } finally {

@@ -55,8 +55,10 @@ export function ComparisonPage() {
 
   useEffect(() => {
     if (!activeComparison?.id) {
-      setComparisonDetail(null);
-      setDetailError(null);
+      queueMicrotask(() => {
+        setComparisonDetail(null);
+        setDetailError(null);
+      });
       return;
     }
 

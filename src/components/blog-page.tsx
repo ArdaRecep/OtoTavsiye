@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { BookOpen, ChevronRight, Loader2, Pencil, Trash2 } from "lucide-react";
+import { BookOpen, ChevronRight, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import type { BlogPostRow } from "@/app/api/blog/route";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { BlogEditorModal } from "./blog-editor-modal";
@@ -11,6 +11,7 @@ import { BlogEditorModal } from "./blog-editor-modal";
 export function BlogPage() {
   const [posts, setPosts] = useState<BlogPostRow[]>([]);
   const [editingPost, setEditingPost] = useState<BlogPostRow | null>(null);
+  const [isCreatingPost, setIsCreatingPost] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { userId, isAdmin, isLoading: isAdminLoading } = useAdminStatus();
@@ -55,21 +56,38 @@ export function BlogPage() {
   }
 
   function handleSavedPost(nextPost: BlogPostRow) {
-    setPosts((current) => current.map((item) => (item.id === nextPost.id ? nextPost : item)));
+    setPosts((current) => {
+      const exists = current.some((item) => item.id === nextPost.id);
+      return exists ? current.map((item) => (item.id === nextPost.id ? nextPost : item)) : [nextPost, ...current];
+    });
   }
 
   return (
     <>
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-4 sm:px-5">
         <header className="rounded-md border border-neutral-300 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-2 text-[#014636]">
-            <BookOpen className="h-5 w-5" />
-            <span className="text-xs font-bold uppercase tracking-[0.14em]">Blog</span>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-[#014636]">
+                <BookOpen className="h-5 w-5" />
+                <span className="text-xs font-bold uppercase tracking-[0.14em]">Blog</span>
+              </div>
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-[#0a1110]">Araç rehberi</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">
+                Araç seçerken işine yarayacak kısa rehberler, bakım ipuçları ve karar notları.
+              </p>
+            </div>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setIsCreatingPost(true)}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#014636] px-4 text-sm font-semibold text-white transition hover:bg-[#003a2d]"
+              >
+                <Plus className="h-4 w-4" />
+                Blog ekle
+              </button>
+            ) : null}
           </div>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-[#0a1110]">Araç rehberi</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">
-            Araç seçerken işine yarayacak kısa rehberler, bakım ipuçları ve karar notları.
-          </p>
         </header>
 
         {isLoading || isAdminLoading ? (
@@ -135,10 +153,13 @@ export function BlogPage() {
           </div>
         )}
         <BlogEditorModal
-          isOpen={Boolean(editingPost)}
+          isOpen={isCreatingPost || Boolean(editingPost)}
           userId={userId}
           post={editingPost}
-          onClose={() => setEditingPost(null)}
+          onClose={() => {
+            setIsCreatingPost(false);
+            setEditingPost(null);
+          }}
           onSaved={handleSavedPost}
         />
       </main>

@@ -22,11 +22,11 @@ export default function KayitPage() {
     const nextUsername = username.trim();
 
     if (!nextUsername) {
-      setUsernameStatus({ state: "idle", message: "" });
+      queueMicrotask(() => setUsernameStatus({ state: "idle", message: "" }));
       return;
     }
 
-    setUsernameStatus({ state: "checking", message: "Kontrol ediliyor..." });
+    queueMicrotask(() => setUsernameStatus({ state: "checking", message: "Kontrol ediliyor..." }));
 
     const timeout = window.setTimeout(async () => {
       try {

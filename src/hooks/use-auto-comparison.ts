@@ -59,16 +59,11 @@ export function useAutoComparison(items: RecommendedCar[]): AutoComparisonState 
 
     if (vehicleCount < 2 || vehicleCount > 3) {
       lastEnsuredKeyRef.current = null;
-      setState(initialState);
       return;
     }
 
     if (!userId) {
-      setState({
-        status: "waiting_for_auth",
-        comparison: null,
-        error: null,
-      });
+      lastEnsuredKeyRef.current = null;
       return;
     }
 
@@ -138,6 +133,11 @@ export function useAutoComparison(items: RecommendedCar[]): AutoComparisonState 
       window.clearTimeout(timeoutId);
     };
   }, [canonicalKey, isLoading, userId, vehicleCount]);
+
+  if (!isLoading && (vehicleCount < 2 || vehicleCount > 3)) return initialState;
+  if (!isLoading && !userId) {
+    return { status: "waiting_for_auth", comparison: null, error: null };
+  }
 
   return state;
 }

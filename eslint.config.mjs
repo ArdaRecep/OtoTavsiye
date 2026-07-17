@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local database diagnostics are standalone CommonJS scripts, not app code.
+    "check_db.js",
+    "check_table.js",
   ]),
 ]);
 

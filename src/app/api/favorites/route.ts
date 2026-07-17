@@ -5,7 +5,7 @@ import {
 } from "@/lib/recommendations";
 import { requireUser } from "@/lib/auth/require-user";
 import { authErrorResponse } from "@/lib/auth/handle-auth-error";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const vehicleProfileSelect =
   "id, make, model, trim_level, segment, power_hp, min_year, max_year, min_km, max_km, market_min_price, market_max_price, avg_annual_cost_try, condition_summary, image_url, tags, why_listed, pros, cons";
@@ -13,9 +13,8 @@ const vehicleProfileSelect =
 export async function GET() {
   try {
     const user = await requireUser();
-
-    const supabase = await createSupabaseServerClient();
-    const { data: favorites, error: favoriteError } = await supabase
+    const admin = createSupabaseAdminClient();
+    const { data: favorites, error: favoriteError } = await admin
       .from("vehicle_favorites")
       .select("vehicle_id, created_at")
       .eq("user_id", user.id)
@@ -45,7 +44,7 @@ export async function GET() {
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await admin
       .from("vehicle_market_profiles")
       .select(vehicleProfileSelect)
       .in("id", ids);

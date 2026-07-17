@@ -1,5 +1,6 @@
 import { getAdminState } from "@/lib/admin";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { NextRequest } from "next/server";
 
 type UserRow = {
   id: string;
@@ -14,16 +15,19 @@ type BanRow = {
   ban_type: "chat" | "access";
   expires_at: string | null;
   revoked_at: string | null;
+  reason: string | null;
+  created_at: string;
 };
 
 type BanPayload = {
   userId?: string;
   banType?: "chat" | "access";
   days?: number;
+  duration?: "temporary" | "permanent";
   reason?: string;
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const adminState = await getAdminState();
 
@@ -32,15 +36,19 @@ export async function GET() {
     }
 
     const admin = createSupabaseAdminClient();
+    const requestedUserId = request.nextUrl.searchParams.get("userId")?.trim();
+    let usersQuery = admin
+      .from("users")
+      .select("id, username, is_admin, created_at")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (requestedUserId) usersQuery = usersQuery.eq("id", requestedUserId);
+
     const [{ data: usersData, error: usersError }, { data: bansData }] = await Promise.all([
-      admin
-        .from("users")
-        .select("id, username, is_admin, created_at")
-        .order("created_at", { ascending: false })
-        .limit(200),
+      usersQuery,
       admin
         .from("user_bans")
-        .select("id, user_id, ban_type, expires_at, revoked_at")
+        .select("id, user_id, ban_type, expires_at, revoked_at, reason, created_at")
         .is("revoked_at", null),
     ]);
 
@@ -65,8 +73,14 @@ export async function GET() {
           username: user.username,
           isAdmin: Boolean(user.is_admin),
           createdAt: user.created_at,
+          chatBanned: Boolean(chatBan),
           chatBannedUntil: chatBan?.expires_at ?? null,
           accessBanned: Boolean(accessBan),
+          accessBannedUntil: accessBan?.expires_at ?? null,
+          bans: {
+            chat: chatBan ? serializeBan(chatBan) : null,
+            access: accessBan ? serializeBan(accessBan) : null,
+          },
         };
       }),
     });
@@ -86,8 +100,9 @@ export async function POST(request: Request) {
     const body = (await request.json()) as BanPayload;
     const userId = typeof body.userId === "string" ? body.userId : "";
     const banType = body.banType;
+    const duration = body.duration === "permanent" ? "permanent" : "temporary";
 
-    if (!userId || !["chat", "access"].includes(String(banType))) {
+    if (!userId || (banType !== "chat" && banType !== "access")) {
       return Response.json({ error: "userId ve banType gerekli." }, { status: 400 });
     }
 
@@ -111,24 +126,16 @@ export async function POST(request: Request) {
     }
 
     const days = clampDays(body.days);
-    const expiresAt = banType === "chat" ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null;
     const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : null;
 
-    const { error: insertError } = await admin.from("user_bans").insert({
-      user_id: userId,
-      ban_type: banType,
-      reason,
-      expires_at: expiresAt,
-      created_by: adminState.user.id,
+    const { error: banError } = await admin.rpc("admin_apply_user_ban", {
+      p_admin_user_id: adminState.user.id,
+      p_user_id: userId,
+      p_ban_type: banType,
+      p_duration_days: duration === "temporary" ? days : null,
+      p_reason: reason,
     });
-
-    if (insertError) {
-      return Response.json({ error: "Ban uygulanamadı." }, { status: 500 });
-    }
-
-    if (banType === "access") {
-      await banKnownIdentities(admin, userId, adminState.user.id, reason);
-    }
+    if (banError) return Response.json({ error: adminBanError(banError.message) }, { status: 500 });
 
     return Response.json({ ok: true });
   } catch {
@@ -148,25 +155,17 @@ export async function DELETE(request: Request) {
     const userId = typeof body.userId === "string" ? body.userId : "";
     const banType = body.banType;
 
-    if (!userId || !["chat", "access"].includes(String(banType))) {
+    if (!userId || (banType !== "chat" && banType !== "access")) {
       return Response.json({ error: "userId ve banType gerekli." }, { status: 400 });
     }
 
     const admin = createSupabaseAdminClient();
-    await admin
-      .from("user_bans")
-      .update({ revoked_at: new Date().toISOString() })
-      .eq("user_id", userId)
-      .eq("ban_type", banType)
-      .is("revoked_at", null);
-
-    if (banType === "access") {
-      await admin
-        .from("auth_identity_bans")
-        .update({ revoked_at: new Date().toISOString() })
-        .eq("source_user_id", userId)
-        .is("revoked_at", null);
-    }
+    const { error: revokeError } = await admin.rpc("admin_revoke_user_ban", {
+      p_admin_user_id: adminState.user.id,
+      p_user_id: userId,
+      p_ban_type: banType,
+    });
+    if (revokeError) return Response.json({ error: "Ban kaldırılamadı." }, { status: 500 });
 
     return Response.json({ ok: true });
   } catch {
@@ -174,28 +173,15 @@ export async function DELETE(request: Request) {
   }
 }
 
-async function banKnownIdentities(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  userId: string,
-  adminUserId: string,
-  reason: string | null,
-) {
-  const { data } = await admin
-    .from("user_auth_identities")
-    .select("identity_type, identity_hash")
-    .eq("user_id", userId);
-
-  const rows = (data ?? []).map((identity) => ({
-    identity_type: identity.identity_type,
-    identity_hash: identity.identity_hash,
-    source_user_id: userId,
-    reason,
-    created_by: adminUserId,
-  }));
-
-  if (!rows.length) return;
-
-  await admin.from("auth_identity_bans").insert(rows);
+function serializeBan(ban: BanRow) {
+  return {
+    id: ban.id,
+    type: ban.ban_type,
+    expiresAt: ban.expires_at,
+    permanent: !ban.expires_at,
+    reason: ban.reason,
+    createdAt: ban.created_at,
+  };
 }
 
 function clampDays(value: unknown) {
@@ -211,4 +197,11 @@ function isActiveBan(ban: BanRow) {
   if (!ban.expires_at) return true;
 
   return new Date(ban.expires_at).getTime() > Date.now();
+}
+
+function adminBanError(message: string) {
+  if (message.includes("CANNOT_BAN_SELF")) return "Kendi hesabını banlayamazsın.";
+  if (message.includes("CANNOT_BAN_ADMIN")) return "Admin kullanıcı banlanamaz.";
+  if (message.includes("USER_NOT_FOUND")) return "Kullanıcı bulunamadı.";
+  return "Ban uygulanamadı. Moderasyon migration'ını kontrol et.";
 }

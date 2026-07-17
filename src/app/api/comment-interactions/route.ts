@@ -20,6 +20,16 @@ export async function POST(request: NextRequest) {
 
     await requireUser();
     const supabase = await createSupabaseServerClient();
+    const { data: comment } = await supabase
+      .from("vehicle_comments")
+      .select("content")
+      .eq("id", commentId)
+      .maybeSingle<{ content: string }>();
+
+    if (!comment || comment.content.trim() === "[silindi]") {
+      return Response.json({ error: "Yorum bulunamadı." }, { status: 404 });
+    }
+
     const { data, error } = await supabase.rpc("toggle_comment_reaction", {
       p_comment_id: commentId,
       p_type: action,

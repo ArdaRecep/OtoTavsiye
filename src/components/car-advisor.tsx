@@ -11,6 +11,8 @@ import {
   Fuel,
   Grid2X2,
   Loader2,
+  Pencil,
+  Plus,
   RefreshCw,
   Settings,
   ShieldCheck,
@@ -26,6 +28,9 @@ import { getComparisonItemIds, MAX_COMPARISON_ITEMS, toggleComparisonItem } from
 import { useDebounce } from "@/hooks/use-debounce";
 import { ComparisonToast } from "./comparison-toast";
 import { FavoriteButton, VehicleRatingButton } from "./vehicle-social-actions";
+import { VehicleEditorModal } from "./vehicle-editor-modal";
+import { SponsorSlot } from "./sponsor-slot";
+import { useAdminStatus } from "@/hooks/use-admin-status";
 import type {
   FocusEvent,
   KeyboardEvent,
@@ -144,7 +149,12 @@ export function CarAdvisor() {
   const [searchQuery, setSearchQuery] = useState("");
   const [socialByVehicleId, setSocialByVehicleId] = useState<Record<string, VehicleSocialState>>({});
   const [isMobileFiltersExpanded, setIsMobileFiltersExpanded] = useState(false);
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
+  const [isCreatingVehicle, setIsCreatingVehicle] = useState(false);
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  const { isAdmin } = useAdminStatus();
+  const recommendationRequestRef = useRef<AbortController | null>(null);
+  const socialStateRequestedRef = useRef(new Set<string>());
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -175,16 +185,21 @@ export function CarAdvisor() {
   }, []);
 
   const fetchSocialStateForVehicles = useCallback(async (vehicleIds: string[]) => {
-    if (!vehicleIds.length) return;
+    const pendingIds = vehicleIds.filter((vehicleId) => !socialStateRequestedRef.current.has(vehicleId));
+    if (!pendingIds.length) return;
+    pendingIds.forEach((vehicleId) => socialStateRequestedRef.current.add(vehicleId));
 
     const response = await fetch("/api/vehicle-social-state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vehicleIds }),
+      body: JSON.stringify({ vehicleIds: pendingIds }),
     });
     const result = await response.json();
 
-    if (!response.ok) return;
+    if (!response.ok) {
+      pendingIds.forEach((vehicleId) => socialStateRequestedRef.current.delete(vehicleId));
+      return;
+    }
 
     setSocialByVehicleId((current) => {
       const next = { ...current };
@@ -253,6 +268,9 @@ export function CarAdvisor() {
     const append = options?.append ?? false;
     const page = options?.page ?? 0;
     const activeSearchQuery = options?.searchQuery ?? debouncedSearchQuery.trim();
+    recommendationRequestRef.current?.abort();
+    const controller = new AbortController();
+    recommendationRequestRef.current = controller;
 
     if (append) {
       setIsLoadingMore(true);
@@ -272,6 +290,7 @@ export function CarAdvisor() {
           pageSize: RESULTS_PAGE_SIZE,
           searchQuery: activeSearchQuery,
         })),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -292,10 +311,13 @@ export function CarAdvisor() {
         setAppliedPreferences(payload.appliedFilters);
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Beklenmeyen bir hata oluştu.");
     } finally {
-      setIsLoading(false);
-      setIsLoadingMore(false);
+      if (recommendationRequestRef.current === controller) {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
     }
   }
 
@@ -426,9 +448,16 @@ export function CarAdvisor() {
               {pageMeta.description}
             </p>
           </div>
-          <div className="w-full rounded-md border border-neutral-300 bg-white px-4 py-3 text-xs text-neutral-600 shadow-sm sm:w-auto">
-            <div className="text-sm font-bold text-[#0a1110]">{formattedBudget}</div>
-            <div className="mt-0.5">Aktif fiyat aralığı</div>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            {isAdmin ? (
+              <button type="button" onClick={() => setIsCreatingVehicle(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#014636] px-4 text-sm font-semibold text-white hover:bg-[#003a2d]">
+                <Plus className="h-4 w-4" /> Yeni araç
+              </button>
+            ) : null}
+            <div className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-xs text-neutral-600 shadow-sm">
+              <div className="text-sm font-bold text-[#0a1110]">{formattedBudget}</div>
+              <div className="mt-0.5">Aktif fiyat aralığı</div>
+            </div>
           </div>
         </header>
 
@@ -665,6 +694,8 @@ export function CarAdvisor() {
               socialByVehicleId={socialByVehicleId}
               onSocialChange={mergeVehicleSocialState}
               onLoadMore={loadMoreResults}
+              canEdit={isAdmin}
+              onEditVehicle={setEditingVehicleId}
             />
 
             <PendingApplyBar
@@ -675,6 +706,13 @@ export function CarAdvisor() {
             />
           </div>
       </div>
+      <VehicleEditorModal
+        isOpen={isCreatingVehicle || Boolean(editingVehicleId)}
+        vehicleId={editingVehicleId}
+        onClose={() => { setIsCreatingVehicle(false); setEditingVehicleId(null); }}
+        onSaved={() => applyCurrentPreferences()}
+        onDeleted={() => applyCurrentPreferences()}
+      />
     </>
   );
 }
@@ -693,6 +731,8 @@ function RecommendationResults({
   socialByVehicleId,
   onSocialChange,
   onLoadMore,
+  canEdit,
+  onEditVehicle,
 }: {
   data: RecommendationResponse | null;
   recommendations: RecommendedCar[];
@@ -707,6 +747,8 @@ function RecommendationResults({
   socialByVehicleId: Record<string, VehicleSocialState>;
   onSocialChange: (vehicleId: string, nextState: Partial<VehicleSocialState>) => void;
   onLoadMore: () => void;
+  canEdit: boolean;
+  onEditVehicle: (vehicleId: string) => void;
 }) {
   const hasSearch = searchQuery.trim().length > 0;
   const isRecommendedMode = data?.mode === "recommended";
@@ -729,7 +771,7 @@ function RecommendationResults({
               <h2 className="text-lg font-semibold">Araç listesi</h2>
               <p className="mt-1 text-sm text-neutral-600">
                 {hasSearch
-                  ? `"${searchQuery.trim()}" için ${recommendations.length} araç gösteriliyor.`
+                  ? `"${searchQuery.trim()}" için ${data.totalMatches} araç bulundu.`
                   : isRecommendedMode
                     ? "Seçtiğin filtrelere göre en uygun 10 araç getirildi."
                     : hasOnlyPriceFilter
@@ -738,6 +780,8 @@ function RecommendationResults({
               </p>
             </div>
           </div>
+
+          <SponsorSlot compact />
 
           {recommendations.length ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -750,6 +794,8 @@ function RecommendationResults({
                   onToggleComparison={onToggleComparison}
                   socialState={socialByVehicleId[recommendation.car.id]}
                   onSocialChange={onSocialChange}
+                  canEdit={canEdit}
+                  onEdit={() => onEditVehicle(recommendation.car.id)}
                 />
               ))}
             </div>
@@ -763,22 +809,35 @@ function RecommendationResults({
           )}
 
           {data.hasMore && recommendations.length > 0 ? (
-            <div className="flex justify-center">
-              <button
-                type="button"
-                onClick={onLoadMore}
-                disabled={isLoadingMore}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 text-sm font-semibold text-[#014636] transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:text-neutral-400"
-              >
-                {isLoadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Daha fazla yükle
-              </button>
-            </div>
+            <LoadMoreTrigger isLoading={isLoadingMore} onLoadMore={onLoadMore} />
           ) : null}
 
         </>
       ) : null}
     </section>
+  );
+}
+
+function LoadMoreTrigger({ isLoading, onLoadMore }: { isLoading: boolean; onLoadMore: () => void }) {
+  const triggerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const element = triggerRef.current;
+    if (!element || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting && !isLoading) onLoadMore();
+    }, { rootMargin: "320px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [isLoading, onLoadMore]);
+
+  return (
+    <div ref={triggerRef} className="flex justify-center py-2">
+      <button type="button" onClick={onLoadMore} disabled={isLoading} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-4 text-sm font-semibold text-[#014636] transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:text-neutral-400">
+        {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+        {isLoading ? "Yükleniyor" : "Daha fazla yükle"}
+      </button>
+    </div>
   );
 }
 
@@ -1157,6 +1216,8 @@ function CarCard({
   onToggleComparison,
   socialState,
   onSocialChange,
+  canEdit,
+  onEdit,
 }: {
   recommendation: RecommendedCar;
   isCompared: boolean;
@@ -1164,6 +1225,8 @@ function CarCard({
   onToggleComparison: (recommendation: RecommendedCar) => void;
   socialState?: VehicleSocialState;
   onSocialChange: (vehicleId: string, nextState: Partial<VehicleSocialState>) => void;
+  canEdit: boolean;
+  onEdit: () => void;
 }) {
   const { car } = recommendation;
 
@@ -1186,6 +1249,17 @@ function CarCard({
             </div>
           )}
           <div className="flex items-center gap-1.5">
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={onEdit}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-[#014636] transition hover:bg-emerald-100"
+                aria-label={`${car.make} ${car.model} düzenle`}
+                title="Aracı düzenle"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => onToggleComparison(recommendation)}

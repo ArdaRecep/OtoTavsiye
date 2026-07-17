@@ -14,6 +14,7 @@ import {
   PenLine,
   Search,
   ShieldCheck,
+  MessagesSquare,
   X,
   Menu,
 } from "lucide-react";
@@ -25,12 +26,13 @@ import type { NotificationRow } from "@/app/api/notifications/route";
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-export type ActiveTab = "recommendations" | "comparisons" | "favorites" | "blog" | "admin";
+export type ActiveTab = "recommendations" | "comparisons" | "favorites" | "community" | "blog" | "admin";
 
 export const navItems: { id: ActiveTab; label: string; icon: typeof PenLine; href: string; widthClass: string }[] = [
   { id: "recommendations", label: "Öneriler", icon: PenLine, href: "/", widthClass: "w-[110px]" },
   { id: "comparisons", label: "Karşılaştırmalar", icon: Grid2X2, href: "/karsilastirmalar", widthClass: "w-[160px]" },
   { id: "favorites", label: "Favoriler", icon: Heart, href: "/favoriler", widthClass: "w-[110px]" },
+  { id: "community", label: "Topluluk", icon: MessagesSquare, href: "/topluluk", widthClass: "w-[112px]" },
   { id: "blog", label: "Blog", icon: BookOpen, href: "/blog", widthClass: "w-[90px]" },
 ];
 
@@ -64,7 +66,7 @@ export function AuthButtons({ mobileMode = false }: { mobileMode?: boolean }) {
   const { data: notificationsData, mutate: mutateNotifications } = useSWR<{ notifications: NotificationRow[] }>(
     userId ? "/api/notifications" : null,
     fetcher,
-    { refreshInterval: 15000 } // Her 15 saniyede bir yeni bildirimleri kontrol et
+    { refreshInterval: 60000, dedupingInterval: 30000, refreshWhenHidden: false }
   );
 
   const notifications = notificationsData?.notifications || [];
@@ -87,7 +89,7 @@ export function AuthButtons({ mobileMode = false }: { mobileMode?: boolean }) {
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-3">
             {avatarUrl ? (
-              <img src={avatarUrl} alt={username} className="h-10 w-10 rounded-full object-cover" />
+              <img src={avatarUrl} alt={username} width={40} height={40} decoding="async" className="h-10 w-10 rounded-full object-cover" />
             ) : (
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-sm font-bold text-white">
                 {initial}
@@ -264,7 +266,7 @@ export function AuthButtons({ mobileMode = false }: { mobileMode?: boolean }) {
         {/* Kullanıcı Profili */}
         <div className="flex items-center gap-2">
           {avatarUrl ? (
-            <img src={avatarUrl} alt={username} className="h-7 w-7 rounded-full object-cover" />
+            <img src={avatarUrl} alt={username} width={28} height={28} decoding="async" className="h-7 w-7 rounded-full object-cover" />
           ) : (
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
               {initial}
@@ -349,11 +351,12 @@ export function SearchField({
     }
 
     let isMounted = true;
+    const controller = new AbortController();
     queueMicrotask(() => {
       if (isMounted) setLoading(true);
     });
 
-    fetch(`/api/autocomplete?q=${encodeURIComponent(debouncedQuery)}`)
+    fetch(`/api/autocomplete?q=${encodeURIComponent(debouncedQuery)}`, { signal: controller.signal })
       .then((res) => res.json())
       .then((data) => {
         if (!isMounted) return;
@@ -365,13 +368,16 @@ export function SearchField({
         setResults(nextResults);
         setIsOpen(nextResults.suggestions.length > 0 || nextResults.categories.length > 0);
       })
-      .catch((err) => console.error("Autocomplete error:", err))
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      })
       .finally(() => {
         if (isMounted) setLoading(false);
       });
 
     return () => {
       isMounted = false;
+      controller.abort();
     };
   }, [debouncedQuery]);
 
@@ -489,7 +495,7 @@ export function Navbar({
   };
 
   const navLinks = (
-    <nav className="-mx-1 flex shrink-0 items-center gap-1.5 overflow-x-auto px-1 lg:overflow-visible">
+    <nav className="-mx-1 flex shrink-0 items-center gap-1.5 overflow-x-auto px-1 xl:overflow-visible">
       {navItems.map((item) => {
         const Icon = item.icon;
         const isActive = isNavItemActive(pathname, item.href);
@@ -515,7 +521,7 @@ export function Navbar({
       <header className="sticky top-0 z-30 border-b border-emerald-950/30 bg-[#00261e] text-white shadow-sm">
         <div className="mx-auto w-full max-w-[1920px] px-3 py-3 sm:px-5">
           {/* Masaüstü: tek satır */}
-          <div className="hidden items-center gap-3 lg:flex xl:gap-5">
+          <div className="hidden items-center gap-3 xl:flex xl:gap-5">
             <Brand />
             <div className="relative w-full max-w-[320px] xl:max-w-[540px] 2xl:max-w-[680px]">
               <SearchField value={searchQuery || ""} onChange={handleSearchChange} />
@@ -526,7 +532,7 @@ export function Navbar({
           </div>
 
           {/* Mobil: Üst Bilgi Çubuğu */}
-          <div className="lg:hidden">
+          <div className="xl:hidden">
             {mobileSearchOpen ? (
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
@@ -570,7 +576,7 @@ export function Navbar({
 
       {/* Mobil Drawer Overlay */}
       <div 
-        className={`fixed inset-0 z-50 flex lg:hidden transition-all duration-300 ${
+        className={`fixed inset-0 z-50 flex xl:hidden transition-all duration-300 ${
           mobileMenuOpen ? "visible" : "invisible"
         }`}
       >

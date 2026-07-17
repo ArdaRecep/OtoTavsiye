@@ -37,7 +37,7 @@ function PersistentNavbar() {
   useEffect(() => {
     if (pathname === "/") {
       const q = searchParams.get("q")?.trim() ?? "";
-      setSearchQuery(q);
+      queueMicrotask(() => setSearchQuery(q));
     }
   }, [pathname, searchParams]);
 

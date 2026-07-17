@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { ImageUp, Loader2, Save, X } from "lucide-react";
+import { ImageIcon, Loader2, Save, X } from "lucide-react";
 import type { BlogPostRow } from "@/app/api/blog/route";
 
 type BlogFormState = {
@@ -26,18 +26,15 @@ export function BlogEditorModal({
   onSaved: (post: BlogPostRow) => void;
 }) {
   const [form, setForm] = useState<BlogFormState>(createInitialForm(post));
-  const [coverFile, setCoverFile] = useState<File | null>(null);
-  const [coverPreview, setCoverPreview] = useState<string | null>(post?.cover_image_url ?? null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const coverPreview = form.coverImageUrl.trim();
 
   useEffect(() => {
     if (!isOpen) return;
 
     queueMicrotask(() => {
       setForm(createInitialForm(post));
-      setCoverFile(null);
-      setCoverPreview(post?.cover_image_url ?? null);
       setError(null);
     });
   }, [isOpen, post]);
@@ -53,7 +50,6 @@ export function BlogEditorModal({
     setError(null);
 
     try {
-      const coverImageUrl = coverFile ? await uploadCoverImage(coverFile) : form.coverImageUrl;
       const response = await fetch(post ? `/api/blog/${encodeURIComponent(post.slug)}` : "/api/blog", {
         method: post ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,7 +57,7 @@ export function BlogEditorModal({
           title: form.title,
           excerpt: form.excerpt,
           content: form.content,
-          coverImageUrl,
+          coverImageUrl: form.coverImageUrl,
           status: form.status,
         }),
       });
@@ -80,20 +76,13 @@ export function BlogEditorModal({
     }
   }
 
-  function handleFileChange(file: File | undefined) {
-    if (!file) return;
-
-    setCoverFile(file);
-    setCoverPreview(URL.createObjectURL(file));
-  }
-
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 px-4 py-6 backdrop-blur-sm">
       <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-md border border-neutral-300 bg-white p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-neutral-950">{post ? "Blogu düzenle" : "Yeni blog ekle"}</h2>
-            <p className="mt-1 text-sm text-neutral-600">Görseli dosya olarak yükle, içerikleri kaydet.</p>
+            <p className="mt-1 text-sm text-neutral-600">Kapak görselini URL ile ekle, içerikleri kaydet.</p>
           </div>
           <button
             type="button"
@@ -107,7 +96,7 @@ export function BlogEditorModal({
 
         <form onSubmit={handleSubmit} className="mt-5 grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
           <div>
-            <label className="flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-50 p-4 text-center transition hover:border-[#014636]/50 hover:bg-emerald-50/40">
+            <div className="flex min-h-44 flex-col items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-50 p-4 text-center">
               {coverPreview ? (
                 <span
                   className="block h-36 w-full rounded-md bg-neutral-200 bg-cover bg-center"
@@ -115,24 +104,16 @@ export function BlogEditorModal({
                 />
               ) : (
                 <>
-                  <ImageUp className="h-8 w-8 text-neutral-300" />
-                  <span className="mt-3 text-sm font-semibold text-neutral-700">Kapak görseli seç</span>
-                  <span className="mt-1 text-xs text-neutral-500">JPG, PNG, WEBP veya GIF</span>
+                  <ImageIcon className="h-8 w-8 text-neutral-300" />
+                  <span className="mt-3 text-sm font-semibold text-neutral-700">Kapak görseli</span>
+                  <span className="mt-1 text-xs text-neutral-500">Görsel URL girince burada önizlenir.</span>
                 </>
               )}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                onChange={(event) => handleFileChange(event.target.files?.[0])}
-                className="sr-only"
-              />
-            </label>
+            </div>
             {coverPreview ? (
               <button
                 type="button"
                 onClick={() => {
-                  setCoverFile(null);
-                  setCoverPreview(null);
                   setForm((current) => ({ ...current, coverImageUrl: "" }));
                 }}
                 className="mt-2 h-9 w-full rounded-md border border-neutral-300 text-sm font-semibold text-neutral-600 transition hover:bg-neutral-50"
@@ -153,6 +134,12 @@ export function BlogEditorModal({
               label="Kısa açıklama"
               value={form.excerpt}
               onChange={(value) => setForm((current) => ({ ...current, excerpt: value }))}
+            />
+            <Input
+              label="Kapak görseli URL"
+              value={form.coverImageUrl}
+              onChange={(value) => setForm((current) => ({ ...current, coverImageUrl: value }))}
+              placeholder="https://..."
             />
             <label className="block">
               <span className="text-xs font-semibold text-neutral-600">İçerik</span>
@@ -207,33 +194,18 @@ function createInitialForm(post?: BlogPostRow | null): BlogFormState {
   };
 }
 
-async function uploadCoverImage(file: File) {
-  const formData = new FormData();
-  formData.set("file", file);
-
-  const response = await fetch("/api/blog/upload", {
-    method: "POST",
-    body: formData,
-  });
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error ?? "Görsel yüklenemedi.");
-  }
-
-  return data.url as string;
-}
-
 function Input({
   label,
   value,
   onChange,
   required,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
@@ -242,6 +214,7 @@ function Input({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         required={required}
+        placeholder={placeholder}
         className="mt-1 h-10 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none transition focus:border-[#014636] focus:ring-2 focus:ring-emerald-100"
       />
     </label>

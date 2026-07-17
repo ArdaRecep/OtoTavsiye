@@ -65,7 +65,7 @@ function normalizeSearchTerm(value: string | null) {
   if (!value) return "";
 
   return value
-    .replace(/[,%()]/g, " ")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       const searchTerms = searchQuery.split(" ").filter(Boolean).slice(0, 5);
       let query = supabase
         .from("vehicle_market_profiles")
-        .select(vehicleProfileSelect);
+        .select(vehicleProfileSelect, { count: "exact" });
 
       for (const term of searchTerms) {
         const searchPattern = escapeIlike(term);
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
         );
       }
 
-      const { data, error } = await query
+      const { data, error, count } = await query
         .order("make", { ascending: true })
         .order("model", { ascending: true })
         .range(from, to);
@@ -69,6 +69,7 @@ export async function POST(request: Request) {
           page,
           pageSize,
           searchQuery,
+          totalMatches: count ?? 0,
         }),
       );
     }
@@ -77,9 +78,9 @@ export async function POST(request: Request) {
     const shouldRecommend = hasRecommendationFilters(appliedFilters);
 
     if (!shouldRecommend) {
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from("vehicle_market_profiles")
-        .select(vehicleProfileSelect)
+        .select(vehicleProfileSelect, { count: "exact" })
         .lte("market_min_price", appliedFilters.maxPrice)
         .gte("market_max_price", appliedFilters.minPrice)
         .order("market_min_price", { ascending: true })
@@ -101,6 +102,7 @@ export async function POST(request: Request) {
           mode: "browse",
           page,
           pageSize,
+          totalMatches: count ?? 0,
         }),
       );
     }
@@ -143,7 +145,7 @@ function normalizeSearchTerm(value: unknown) {
   if (typeof value !== "string") return "";
 
   return value
-    .replace(/[,%()]/g, " ")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
