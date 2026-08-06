@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { NextRequest } from "next/server";
 
 type AutocompleteRow = {
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       return Response.json({ suggestions: [], categories: [] });
     }
 
-    const supabase = await createSupabaseServerClient();
+    const supabase = createSupabaseAdminClient();
     const searchTerms = query.split(" ").filter(Boolean).slice(0, 5);
     let autocompleteQuery = supabase
       .from("vehicle_market_profiles")

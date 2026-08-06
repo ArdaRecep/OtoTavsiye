@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { createClient } from "@supabase/supabase-js";
 import { getSiteUrl } from "@/lib/site";
-import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
+import { getSupabaseServiceRoleKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 export const revalidate = 3600;
 
@@ -16,7 +16,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ];
 
   try {
-    const supabase = createClient(getSupabaseUrl(), getSupabaseAnonKey(), { auth: { persistSession: false } });
+    const supabase = createClient(getSupabaseUrl(), getSupabaseServiceRoleKey(), { auth: { persistSession: false } });
     const [vehicles, posts, threads] = await Promise.all([
       supabase.from("vehicle_market_profiles").select("id, updated_at, image_url").limit(5000),
       supabase.from("blog_posts").select("slug, updated_at").eq("status", "published").limit(2000),

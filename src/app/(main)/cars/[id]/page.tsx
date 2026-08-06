@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { CommentSection } from "@/components/comment-section";
 import { VehicleDetailActions } from "@/components/vehicle-social-actions";
 import type { RecommendedCar } from "@/lib/types";
@@ -225,7 +225,7 @@ export default async function CarDetailPage({ params }: PageProps) {
 }
 
 async function getVehicleProfile(id: string) {
-  const supabase = await createSupabaseServerClient();
+  const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("vehicle_market_profiles")
     .select(

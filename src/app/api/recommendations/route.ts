@@ -10,7 +10,7 @@ import {
   type RawRecommendationRequest,
   type VehicleProfileRow,
 } from "@/lib/recommendations";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const vehicleProfileSelect =
   "id, make, model, trim_level, segment, power_hp, min_year, max_year, min_km, max_km, market_min_price, market_max_price, avg_annual_cost_try, condition_summary, image_url, tags, why_listed, pros, cons";
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     const from = page * pageSize;
     const to = from + pageSize;
     const searchQuery = normalizeSearchTerm(payload.searchQuery);
-    const supabase = await createSupabaseServerClient();
+    const supabase = createSupabaseAdminClient();
 
     if (searchQuery && searchQuery.length >= 2) {
       const searchTerms = searchQuery.split(" ").filter(Boolean).slice(0, 5);
